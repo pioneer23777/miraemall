@@ -1070,7 +1070,9 @@ function renderStock() {
         <br><small>${esc(x.by_name || "")} · ${htWhen(x.at)}${x.memo ? " · " + esc(x.memo) : ""}</small>
         ${boss ? `<div class="actions"><button class="btn small" data-sok="${x.id}">승인</button><button class="btn line small" data-sno="${x.id}">반려</button></div>` : ""}</div>`).join("") : `<p>없음</p>`}
       ${boss ? "" : `<p class="note">승인·반려는 사장만 할 수 있습니다.</p>`}</article>
+    ${stockPeriodHtml(menus)}
     <article class="item"><h3>최근 처리 내역</h3>${moves.filter(x => x.status !== "pending").slice(0, 30).map(x => `<p>${STK_ST[x.status]} · ${x.kind === "in" ? "입고" : "조정"} ${esc(menuName(x.menu_id))} ${x.qty > 0 ? "+" : ""}${n0(x.qty)} · ${esc(x.by_name || "")} → ${esc(x.decided_by || "")} ${htWhen(x.decided_at)}</p>`).join("") || "<p>없음</p>"}</article>`;
+  bindStockPeriod();
   const busy = async (fn) => { try { await fn(); stockData = null; render(); } catch (e) { alert(e.message || e); } };
   document.getElementById("inAdd").onclick = () => busy(async () => {
     const q = parseInt(document.getElementById("inQty").value, 10);
@@ -1089,6 +1091,63 @@ function renderStock() {
   document.getElementById("cntPrint").onclick = () => doPrint(stockCheck80Html(menus), "80mm auto");
   body.querySelectorAll("[data-sok]").forEach(b => b.onclick = () => busy(() => stockRpc("mm_stock_decide", { p_id: Number(b.dataset.sok), p_ok: true })));
   body.querySelectorAll("[data-sno]").forEach(b => b.onclick = () => { if (confirm("반려할까요?")) busy(() => stockRpc("mm_stock_decide", { p_id: Number(b.dataset.sno), p_ok: false })); });
+}
+
+/* ===== 기간별 입출고 조회 (KST, 클라이언트 계산) =====
+   입고·조정: 승인된 건만, 날짜는 등록일(at). 출고: '완료' 주문, 완료시각(doneAt) 있으면 그것, 없으면 주문일. */
+const kstFmt = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit" });
+function kstDay(t) { return kstFmt.format(new Date(t)); }
+let spMode = "month", spFrom = "", spTo = "", spView = "item";
+function spRange() {
+  const today = kstDay(Date.now());
+  if (!spFrom) { spFrom = spMode === "month" ? today.slice(0, 7) : today.slice(0, 8) + "01"; spTo = spMode === "month" ? today.slice(0, 7) : today; }
+  if (spMode === "month") { const [y, m] = spTo.split("-").map(Number); const last = new Date(Date.UTC(y, m, 0)).getUTCDate(); return [spFrom + "-01", spTo + "-" + String(last).padStart(2, "0")]; }
+  return [spFrom, spTo];
+}
+function stockEvents() {
+  const ev = [];
+  (stockData && stockData.moves || []).filter(x => x.status === "approved").forEach(x => ev.push({ day: kstDay(x.at), menuId: x.menu_id, kind: x.kind === "in" ? "in" : "adj", qty: Number(x.qty) || 0 }));
+  db.orders.filter(o => o.status === "완료").forEach(o => (o.items || []).forEach(i => {
+    const mid = i.menuId || (db.menus.find(m => m.name === i.name) || {}).id; if (!mid) return;
+    ev.push({ day: kstDay(o.doneAt || o.at), menuId: mid, kind: "out", qty: Number(i.qty) || 0 });
+  }));
+  return ev;
+}
+function stockPeriodHtml(menus) {
+  const [a, b] = spRange();
+  const ev = stockEvents().filter(e => e.day >= a && e.day <= b);
+  const sum = (list, k) => list.filter(e => e.kind === k).reduce((s, e) => s + e.qty, 0);
+  const sg = n => (n > 0 ? "+" : "") + n0(n);
+  const td = 'style="padding:3px 4px;text-align:right"';
+  let table;
+  if (spView === "item") {
+    const ids = menus.map(m => m.id).concat([...new Set(ev.map(e => e.menuId))].filter(id => !menus.some(m => m.id === id)));
+    const rows = ids.map(id => { const l = ev.filter(e => e.menuId === id); return { id, i: sum(l, "in"), o: sum(l, "out"), d: sum(l, "adj") }; });
+    table = `<tr><th style="text-align:left">품목</th><th ${td}>입고</th><th ${td}>출고</th><th ${td}>조정</th></tr>` +
+      rows.map(r => `<tr><td>${esc(menuName(r.id))}</td><td ${td}>${n0(r.i)}</td><td ${td}>${n0(r.o)}</td><td ${td}>${sg(r.d)}</td></tr>`).join("") +
+      `<tr style="font-weight:700;border-top:2px solid #333"><td>합계</td><td ${td}>${n0(sum(ev, "in"))}</td><td ${td}>${n0(sum(ev, "out"))}</td><td ${td}>${sg(sum(ev, "adj"))}</td></tr>`;
+  } else {
+    const keys = [...new Set(ev.map(e => e.day + "|" + e.menuId))].sort();
+    table = `<tr><th style="text-align:left">날짜</th><th style="text-align:left">품목</th><th ${td}>입고</th><th ${td}>출고</th><th ${td}>조정</th></tr>` +
+      (keys.length ? keys.map(k => { const [d, id] = k.split("|"); const l = ev.filter(e => e.day === d && e.menuId === id);
+        return `<tr><td>${d.slice(5)}</td><td>${esc(menuName(id))}</td><td ${td}>${sum(l, "in") ? n0(sum(l, "in")) : ""}</td><td ${td}>${sum(l, "out") ? n0(sum(l, "out")) : ""}</td><td ${td}>${sum(l, "adj") ? sg(sum(l, "adj")) : ""}</td></tr>`; }).join("") : `<tr><td colspan="5">기간 내 내역 없음</td></tr>`) +
+      `<tr style="font-weight:700;border-top:2px solid #333"><td colspan="2">합계</td><td ${td}>${n0(sum(ev, "in"))}</td><td ${td}>${n0(sum(ev, "out"))}</td><td ${td}>${sg(sum(ev, "adj"))}</td></tr>`;
+  }
+  const t = spMode === "month" ? "month" : "date";
+  return `<article class="item"><h3>기간별 입출고 조회</h3>
+    <div class="actions" style="flex-wrap:wrap;margin:0 0 6px">
+      <button class="btn ${spMode === "month" ? "" : "line"} small" data-spm="month">월 범위</button><button class="btn ${spMode === "day" ? "" : "line"} small" data-spm="day">날짜 직접 입력</button>
+      <button class="btn ${spView === "item" ? "" : "line"} small" data-spv="item">품목별</button><button class="btn ${spView === "day" ? "" : "line"} small" data-spv="day">일자별</button></div>
+    <div style="display:flex;gap:6px;align-items:center"><input type="${t}" id="spFrom" value="${spFrom}" style="margin:0" /> ~ <input type="${t}" id="spTo" value="${spTo}" style="margin:0" /></div>
+    <p class="note">${a} ~ ${b} (한국시간) · 입고·조정은 승인된 건, 등록일 기준 · 출고는 '완료' 주문, 주문일 기준</p>
+    <table id="spTable" style="width:100%;border-collapse:collapse;font-size:14px">${table}</table></article>`;
+}
+function bindStockPeriod() {
+  document.querySelectorAll("[data-spm]").forEach(b => b.onclick = () => { if (spMode !== b.dataset.spm) { spMode = b.dataset.spm; spFrom = spTo = ""; } renderStock(); });
+  document.querySelectorAll("[data-spv]").forEach(b => b.onclick = () => { spView = b.dataset.spv; renderStock(); });
+  const f = document.getElementById("spFrom"), t = document.getElementById("spTo");
+  const ch = () => { if (!f.value || !t.value) return; spFrom = f.value; spTo = t.value; if (spFrom > spTo) [spFrom, spTo] = [spTo, spFrom]; renderStock(); };
+  if (f) { f.onchange = ch; t.onchange = ch; }
 }
 function stockCheck80Html(menus) {
   const ln = (a, b) => `<div class="ln"><span>${a}</span><span>${b}</span></div>`;
