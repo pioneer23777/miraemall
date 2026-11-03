@@ -175,11 +175,6 @@
   .split .btn { margin-top: 0; }
   .photo-row { display: flex; gap: 10px; align-items: center; margin-top: 8px; }
   .photo-row img { width: 64px; height: 64px; object-fit: cover; border-radius: 12px; background: #efe2d2; }
-  .cr-todo { background: #fff0f0; box-shadow: inset 0 0 0 2px #e05252; }
-  .sales { width: 100%; border-collapse: collapse; font-size: 12px; background: white; }
-  .sales th, .sales td { border-bottom: 1px solid var(--line); padding: 6px 4px; text-align: right; white-space: nowrap; }
-  .sales th:first-child, .sales td:first-child { text-align: left; white-space: normal; }
-  .sales tr.sum td { font-weight: 800; border-top: 2px solid var(--ink); }
   .warn { background: #fff4e8; border-radius: 12px; padding: 10px 12px; font-size: 13px; color: #7a4e16; }
   #mileChip { font-size: 11px; font-weight: 700; color: #8d5a1a; }
   .check { display: flex; align-items: center; gap: 8px; margin: 12px 0; font-size: 14px; }
@@ -311,8 +306,6 @@ let cat = "c-drink";
 let cart = [];
 let pickQty = {};
 let usePoints = false;
-let crWant = false, crNo = "";
-let salesMonth = new Date().toISOString().slice(0, 7);
 let lastSyncNotes = [];
 
 function load() {
@@ -487,7 +480,6 @@ function render() {
   if (tab === "order") renderOrder();
   if (tab === "mine") renderMine();
   if (tab === "orders") renderOrders();
-  if (tab === "sales") renderSales();
   if (tab === "menu") renderMenuAdmin();
   if (tab === "approve") renderApprove();
   if (tab === "joins") renderJoins();
@@ -536,8 +528,8 @@ function renderTabs() {
   const tabs = session.role === "customer"
     ? [["order", "발주"], ["cart", "장바구니"], ["mine", "내 주문"]]
     : session.role === "staff"
-      ? [["orders", "주문내역"], ["sales", "월별매출"], ["menu", "메뉴관리"], ["joins", "가입승인"], ["board", "글관리"]]
-      : [["orders", "주문내역"], ["sales", "월별매출"], ["menu", "메뉴관리"], ["approve", "승인"], ["board", "글관리"]];
+      ? [["orders", "주문내역"], ["menu", "메뉴관리"], ["joins", "가입승인"], ["board", "글관리"]]
+      : [["orders", "주문내역"], ["menu", "메뉴관리"], ["approve", "승인"], ["board", "글관리"]];
   document.getElementById("tabs").innerHTML = tabs.map(([id, name]) =>
     `<button class="tab ${tab === id ? "on" : ""}" data-tab="${id}">${name}</button>`
   ).join("");
@@ -591,8 +583,6 @@ function renderCart() {
       <div class="qty"><button data-cm="${i.id}">-</button><span>${i.qty}</span><button data-cp="${i.id}">+</button></div></div>
       <p>공급가 ${won(i.price * i.qty)} · 적립 ${pt((Number(i.mileage) || 0) * i.qty)}</p></article>`).join("")}</div>
       <label class="check"><input id="usePt" type="checkbox" ${usePoints ? "checked" : ""}/> 포인트 사용 · 보유 ${pt(have)} · 1P = 1원</label>
-      <label class="check"><input id="crWant" type="checkbox" ${crWant ? "checked" : ""}/> 현금영수증 신청</label>
-      ${crWant ? `<input id="crNo" inputmode="numeric" placeholder="휴대폰 번호 또는 사업자번호" value="${esc(crNo)}" />` : ""}
       <div class="totals">
         <div><span>공급가</span><b>${won(supply)}</b></div>
         <div><span>부가세</span><b>${won(vat)}</b></div>
@@ -614,22 +604,13 @@ function renderCart() {
   });
   const useBox = document.getElementById("usePt");
   if (useBox) useBox.onchange = () => { usePoints = useBox.checked; render(); };
-  const crBox = document.getElementById("crWant");
-  if (crBox) crBox.onchange = () => { crWant = crBox.checked; if (crWant && !crNo) crNo = session.bizNo || session.phone || ""; render(); };
-  const crIn = document.getElementById("crNo");
-  if (crIn) crIn.oninput = () => { crNo = crIn.value; };
   const place = document.getElementById("place");
   if (place) place.onclick = () => {
-    const crDigits = crWant ? String(crNo).replace(/\D/g, "") : "";
-    if (crWant && (crDigits.length < 10 || crDigits.length > 13)) return alert("현금영수증 번호(휴대폰 또는 사업자번호)를 확인해 주세요.");
     const order = {
       id: uid("o"), userId: session.id, name: session.name, phone: session.phone,
       items: cart.map(i => ({ name: i.name, qty: i.qty, price: i.price, mileage: Number(i.mileage) || 0 })),
-      supply, vat, total: pay, used, earn, status: "입금대기", at: Date.now(),
-      bizName: session.bizName || "", bizNo: session.bizNo || ""
+      supply, vat, total: pay, used, earn, status: "입금대기", at: Date.now()
     };
-    if (crDigits) { order.crNo = crDigits; order.crIssued = false; }
-    crWant = false; crNo = "";
     db.orders.push(order);
     const me = db.users.find(u => u.id === session.id);
     me.mileage = (Number(me.mileage) || 0) - used + earn;
@@ -686,77 +667,12 @@ function renderBoardAdmin() {
     render();
   };
 }
-function bizForm() {
-  return `<details class="item" style="margin-bottom:10px"><summary><b>사업자 정보 (선택)</b> ${session.bizName ? "· " + esc(session.bizName) : ""}</summary>
-    <p class="note">세금계산서 발행용입니다. 입력하지 않아도 발주할 수 있어요.</p>
-    <label>상호</label><input id="bizName" value="${esc(session.bizName || "")}" />
-    <label>사업자번호</label><input id="bizNo" inputmode="numeric" placeholder="123-45-67890" value="${esc(session.bizNo || "")}" />
-    <button class="btn line" id="bizSave">저장</button></details>`;
-}
 function renderMine() {
   const list = db.orders.filter(o => o.userId === session.id).slice().reverse();
-  setTimeout(() => {
-    const b = document.getElementById("bizSave"); if (!b) return;
-    b.onclick = () => {
-      const bizName = document.getElementById("bizName").value.trim().slice(0, 50);
-      const bizNo = document.getElementById("bizNo").value.replace(/\D/g, "");
-      if (bizNo && bizNo.length !== 10) return alert("사업자번호는 숫자 10자리입니다.");
-      const me = db.users.find(u => u.id === session.id);
-      if (me) { me.bizName = bizName; me.bizNo = bizNo; }
-      session.bizName = bizName; session.bizNo = bizNo;
-      save(); alert("사업자 정보를 저장했습니다."); render();
-    };
-  });
-  document.getElementById("body").innerHTML = bizForm() + (list.length ? `<div class="list">${list.map(o => `
+  document.getElementById("body").innerHTML = list.length ? `<div class="list">${list.map(o => `
     <article class="item"><h3>${won(o.total)} <span class="badge ${o.status === "완료" ? "ok" : ""}">${esc(o.status)}</span></h3>
       <p>${esc(o.items.map(i => i.name + " " + i.qty).join(", "))}</p><p>${when(o.at)} · 적립 ${pt(o.earn)}</p></article>`).join("")}</div>`
-    : `<div class="empty">아직 발주한 내역이 없습니다.</div>`);
-}
-function fmtBiz(n) { n = String(n || "").replace(/\D/g, ""); return n.length === 10 ? n.slice(0,3) + "-" + n.slice(3,5) + "-" + n.slice(5) : n; }
-function salesData() {
-  const orders = db.orders.filter(o => ymLocal(o.at) === salesMonth);
-  const by = {};
-  orders.forEach(o => {
-    const u = db.users.find(x => x.id === o.userId) || {};
-    const k = o.userId || o.phone;
-    const r = by[k] = by[k] || { name: o.name || u.name || "", bizName: u.bizName || o.bizName || "", bizNo: u.bizNo || o.bizNo || "", phone: o.phone, count: 0, supply: 0, vat: 0 };
-    r.count++; r.supply += Number(o.supply) || 0; r.vat += Number(o.vat) || 0;
-  });
-  const rows = Object.values(by).sort((a, b) => (a.bizName || a.name).localeCompare(b.bizName || b.name, "ko"));
-  const sum = rows.reduce((t, r) => ({ count: t.count + r.count, supply: t.supply + r.supply, vat: t.vat + r.vat }), { count: 0, supply: 0, vat: 0 });
-  return { orders, rows, sum };
-}
-function ymLocal(t) { const d = new Date(t); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"); }
-function renderSales() {
-  const { orders, rows, sum } = salesData();
-  const cr = orders.filter(o => o.crNo).sort((a, b) => (a.crIssued ? 1 : 0) - (b.crIssued ? 1 : 0) || a.at - b.at);
-  const todo = cr.filter(o => !o.crIssued).length;
-  document.getElementById("body").innerHTML = `
-    <div class="row" style="gap:8px;align-items:center"><input id="salesMonth" type="month" value="${salesMonth}" style="flex:1" /><button class="btn line small" id="salesCsv">CSV 내보내기</button></div>
-    <p class="note">공급가액은 서버가 메뉴 가격으로 계산한 값입니다. 합계 = 공급가액 + 부가세(10%), 포인트 사용 전 금액입니다.</p>
-    <div style="overflow-x:auto"><table class="sales"><thead><tr><th>거래처</th><th>건수</th><th>공급가액</th><th>부가세</th><th>합계</th></tr></thead><tbody>
-    ${rows.map(r => `<tr><td><b>${esc(r.bizName || r.name)}</b>${r.bizName && r.bizName !== r.name ? " · " + esc(r.name) : ""}<br><span class="note">${esc(showPhone(r.phone))}${r.bizNo ? " · " + fmtBiz(r.bizNo) : ""}</span></td><td>${r.count}</td><td>${won(r.supply)}</td><td>${won(r.vat)}</td><td>${won(r.supply + r.vat)}</td></tr>`).join("") || `<tr><td colspan="5" style="text-align:center">이 달 주문이 없습니다.</td></tr>`}
-    <tr class="sum"><td>총합계</td><td>${sum.count}</td><td>${won(sum.supply)}</td><td>${won(sum.vat)}</td><td>${won(sum.supply + sum.vat)}</td></tr></tbody></table></div>
-    <h3 style="margin:16px 0 6px;font-size:15px">현금영수증 신청 ${cr.length}건 ${todo ? `<span class="badge" style="background:#e05252;color:#fff">미발행 ${todo}</span>` : ""}</h3>
-    <div class="warn">입금일로부터 5일 이내 발행</div>
-    <div class="list" style="margin-top:8px">${cr.map(o => `<article class="item ${o.crIssued ? "" : "cr-todo"}">
-      <h3>${esc(o.bizName || o.name)} · ${won((Number(o.supply) || 0) + (Number(o.vat) || 0))} <span class="badge ${o.crIssued ? "ok" : ""}">${o.crIssued ? "발행완료" : "미발행"}</span></h3>
-      <p>번호 ${esc(o.crNo.length === 10 ? fmtBiz(o.crNo) : showPhone(o.crNo))} · ${when(o.at)} · ${esc(o.status)}</p>
-      <label class="check" style="margin:6px 0 0"><input type="checkbox" data-cr="${o.id}" ${o.crIssued ? "checked" : ""}/> 발행완료</label></article>`).join("") || `<div class="empty">신청한 주문이 없습니다.</div>`}</div>`;
-  document.getElementById("salesMonth").onchange = e => { salesMonth = e.target.value || salesMonth; render(); };
-  document.querySelectorAll("[data-cr]").forEach(b => b.onchange = () => {
-    const o = db.orders.find(x => x.id === b.dataset.cr); if (!o) return;
-    o.crIssued = b.checked; save(); render();
-  });
-  document.getElementById("salesCsv").onclick = () => {
-    const q = v => '"' + String(v).replace(/"/g, '""') + '"';
-    const lines = [["월", "거래처", "상호", "사업자번호", "연락처", "건수", "공급가액", "부가세", "합계"].map(q).join(",")]
-      .concat(rows.map(r => [salesMonth, r.name, r.bizName, fmtBiz(r.bizNo), showPhone(r.phone), r.count, r.supply, r.vat, r.supply + r.vat].map(q).join(",")))
-      .concat([[salesMonth, "총합계", "", "", "", sum.count, sum.supply, sum.vat, sum.supply + sum.vat].map(q).join(",")]);
-    const blob = new Blob(["\ufeff" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
-    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "미래몰-월별매출-" + salesMonth + ".csv";
-    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  };
+    : `<div class="empty">아직 발주한 내역이 없습니다.</div>`;
 }
 function renderOrders() {
   const list = db.orders.slice().reverse();
