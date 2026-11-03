@@ -477,6 +477,7 @@ function render() {
   if (tab === "cart") renderCart();
   if (tab === "board") renderBoardAdmin();
   if (tab === "hometax") renderHometax();
+  if (tab === "stock") renderStock();
   if (cat === "notice" || cat === "event") renderBoard();
 }
 // Q/A 안내 문구: 전화번호 추가 시 여기만 고치면 됩니다.
@@ -520,12 +521,12 @@ function renderTabs() {
   const tabs = session.role === "customer"
     ? [["order", "발주"], ["cart", "장바구니"], ["mine", "내 주문"]]
     : session.role === "staff"
-      ? [["orders", "주문내역"], ["menu", "메뉴관리"], ["joins", "가입승인"], ["board", "글관리"], ["hometax", "현금영수증"]]
-      : [["orders", "주문내역"], ["menu", "메뉴관리"], ["approve", "승인"], ["board", "글관리"], ["hometax", "현금영수증"]];
+      ? [["orders", "주문내역"], ["menu", "메뉴관리"], ["joins", "가입승인"], ["board", "글관리"], ["hometax", "현금영수증"], ["stock", "재고"]]
+      : [["orders", "주문내역"], ["menu", "메뉴관리"], ["approve", "승인"], ["board", "글관리"], ["hometax", "현금영수증"], ["stock", "재고"]];
   document.getElementById("tabs").innerHTML = tabs.map(([id, name]) =>
     `<button class="tab ${tab === id ? "on" : ""}" data-tab="${id}">${name}</button>`
   ).join("");
-  document.querySelectorAll(".tab").forEach(b => b.onclick = () => { tab = b.dataset.tab; render(); });
+  document.querySelectorAll(".tab").forEach(b => b.onclick = () => { tab = b.dataset.tab; if (tab === "stock") stockData = null; render(); });
 }
 function photoBlock(m) {
   if (m.photo) return `<img src="${m.photo}" alt="" />`;
@@ -613,7 +614,7 @@ function renderCart() {
     if (evType === "tax") { const b = phone(evBiz); if (b.length !== 10) return alert("세금계산서는 사업자번호 10자리를 입력해 주세요."); evidence = { type: "tax", bizNo: b }; }
     const order = {
       id: uid("o"), userId: session.id, name: session.name, phone: session.phone,
-      items: cart.map(i => ({ name: i.name, qty: i.qty, price: i.price, mileage: Number(i.mileage) || 0 })),
+      items: cart.map(i => ({ menuId: i.id, name: i.name, qty: i.qty, price: i.price, mileage: Number(i.mileage) || 0 })),
       supply, vat, total: pay, used, earn, status: "입금대기", at: Date.now(), evidence
     };
     if (evidence.type === "tax") { const me = db.users.find(u => u.id === session.id); if (me) me.taxInfo = { bizNo: evidence.bizNo }; }
@@ -1027,6 +1028,81 @@ document.addEventListener("click", (e) => {
   }
 });
 
+
+/* ===== 재고 관리 (사장·직원 전용, 서버 RPC mm_stock_*) =====
+   현재고 = 승인된 입고 - 출고(주문 '완료') ± 승인된 조정. 입고·조정은 직원 입력 → 사장 승인. */
+let stockData = null, stockCount = {};
+const STK_ST = { pending: "승인대기", approved: "승인", rejected: "반려" };
+async function stockRpc(fn, args) {
+  if (!cloud.ok || !cloudToken()) throw new Error("온라인 연결 필요");
+  const r = await cloud.sb.rpc(fn, Object.assign({ p_token: cloudToken() }, args || {}));
+  if (r.error) throw new Error(r.error.message === "FORBIDDEN" ? "권한이 없습니다" : r.error.message);
+  return r.data;
+}
+async function loadStock() {
+  try { stockData = await stockRpc("mm_stock_list"); } catch (e) { stockData = { error: String(e.message || e) }; }
+  if (tab === "stock") renderStock();
+}
+function stockMenus() { return db.menus.filter(m => m.status === "active"); }
+function bookOf(id) { const b = (stockData && stockData.book || []).find(x => x.menuId === id); return b || { in: 0, out: 0, adj: 0, qty: 0 }; }
+function menuName(id) { const m = db.menus.find(x => x.id === id); return m ? m.name : id; }
+function catName(m) { const c = db.categories.find(x => x.id === m.categoryId); return c ? c.name : "그외"; }
+function renderStock() {
+  const body = document.getElementById("body");
+  if (!stockData) { body.innerHTML = `<div class="empty">재고 불러오는 중…</div>`; loadStock(); return; }
+  if (stockData.error) { body.innerHTML = `<div class="empty">재고를 불러오지 못했습니다: ${esc(stockData.error)}</div><button class="btn line small" id="stkReload">다시 시도</button>`; document.getElementById("stkReload").onclick = () => { stockData = null; render(); }; return; }
+  const boss = session.role === "boss", menus = stockMenus(), moves = stockData.moves || [];
+  const pend = moves.filter(x => x.status === "pending");
+  const opts = menus.map(m => `<option value="${m.id}">${esc(m.name)}</option>`).join("");
+  body.innerHTML = `
+    <article class="item"><h3>현재고</h3><p class="note" style="margin-top:0">현재고 = 승인된 입고 − 출고(주문 '완료') ± 승인된 조정</p>
+      <div class="list">${menus.map(m => { const b = bookOf(m.id); return `<div class="ln" style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #eee"><span><b>${esc(m.name)}</b> <small>[${esc(catName(m))}]</small></span><span>입고 ${n0(b.in)} · 출고 ${n0(b.out)} · 조정 ${b.adj > 0 ? "+" : ""}${n0(b.adj)} · <b style="${b.qty < 0 ? "color:#c00" : ""}">${n0(b.qty)}</b></span></div>`; }).join("")}</div></article>
+    <article class="item"><h3>입고 입력</h3>
+      <select id="inMenu">${opts}</select><input id="inQty" type="number" min="1" placeholder="수량" /><input id="inMemo" placeholder="메모 (거래처, 비고)" />
+      <button class="btn primary small" id="inAdd">입고 등록 (사장 승인 후 반영)</button></article>
+    <article class="item"><h3>재고조사</h3><p class="note" style="margin-top:0">실수량을 입력하면 장부와 차이가 표시됩니다. 차이 있는 품목만 조정 요청됩니다.</p>
+      ${menus.map(m => { const b = bookOf(m.id), v = stockCount[m.id]; const d = v === undefined || v === "" ? null : Number(v) - b.qty;
+        return `<div style="display:flex;gap:6px;align-items:center;margin:4px 0"><span style="flex:1">${esc(m.name)} <small>장부 ${n0(b.qty)}</small></span><input type="number" min="0" data-cnt="${m.id}" value="${v === undefined ? "" : esc(v)}" placeholder="실수량" style="width:90px;margin:0" /><span style="width:60px;text-align:right;${d ? "color:#c00;font-weight:700" : ""}">${d === null ? "" : (d > 0 ? "+" : "") + n0(d)}</span></div>`; }).join("")}
+      <input id="cntMemo" placeholder="조정 사유 (파손, 분실 등)" />
+      <div class="actions"><button class="btn primary small" id="cntSend">조정 요청</button><button class="btn line small" id="cntPrint">80mm 재고조사표</button></div></article>
+    <article class="item"><h3>승인대기 ${pend.length}건</h3>${pend.length ? pend.map(x => `
+      <div style="border-bottom:1px solid #eee;padding:6px 0"><b>${x.kind === "in" ? "입고" : "조정"}</b> ${esc(menuName(x.menu_id))} ${x.qty > 0 ? "+" : ""}${n0(x.qty)}${x.kind === "adjust" ? ` (장부 ${n0(x.book_qty)} → 실수량 ${n0(x.counted_qty)})` : ""}
+        <br><small>${esc(x.by_name || "")} · ${htWhen(x.at)}${x.memo ? " · " + esc(x.memo) : ""}</small>
+        ${boss ? `<div class="actions"><button class="btn small" data-sok="${x.id}">승인</button><button class="btn line small" data-sno="${x.id}">반려</button></div>` : ""}</div>`).join("") : `<p>없음</p>`}
+      ${boss ? "" : `<p class="note">승인·반려는 사장만 할 수 있습니다.</p>`}</article>
+    <article class="item"><h3>최근 처리 내역</h3>${moves.filter(x => x.status !== "pending").slice(0, 30).map(x => `<p>${STK_ST[x.status]} · ${x.kind === "in" ? "입고" : "조정"} ${esc(menuName(x.menu_id))} ${x.qty > 0 ? "+" : ""}${n0(x.qty)} · ${esc(x.by_name || "")} → ${esc(x.decided_by || "")} ${htWhen(x.decided_at)}</p>`).join("") || "<p>없음</p>"}</article>`;
+  const busy = async (fn) => { try { await fn(); stockData = null; render(); } catch (e) { alert(e.message || e); } };
+  document.getElementById("inAdd").onclick = () => busy(async () => {
+    const q = parseInt(document.getElementById("inQty").value, 10);
+    if (!(q > 0)) throw new Error("수량을 입력해 주세요.");
+    await stockRpc("mm_stock_add", { p_kind: "in", p_menu: document.getElementById("inMenu").value, p_qty: q, p_memo: document.getElementById("inMemo").value });
+    alert("입고가 등록되었습니다. 사장 승인 후 재고에 반영됩니다.");
+  });
+  body.querySelectorAll("[data-cnt]").forEach(i => i.onchange = () => { stockCount[i.dataset.cnt] = i.value; renderStock(); });
+  document.getElementById("cntSend").onclick = () => busy(async () => {
+    const memo = document.getElementById("cntMemo").value;
+    const list = menus.filter(m => stockCount[m.id] !== undefined && stockCount[m.id] !== "" && Number(stockCount[m.id]) !== bookOf(m.id).qty);
+    if (!list.length) throw new Error("장부와 차이 나는 품목이 없습니다.");
+    for (const m of list) { const q = parseInt(stockCount[m.id], 10); if (!(q >= 0)) throw new Error(m.name + " 실수량 오류"); await stockRpc("mm_stock_add", { p_kind: "adjust", p_menu: m.id, p_qty: q, p_memo: memo }); }
+    stockCount = {}; alert(list.length + "개 품목 조정 요청됨. 사장 승인 후 반영됩니다.");
+  });
+  document.getElementById("cntPrint").onclick = () => doPrint(stockCheck80Html(menus), "80mm auto");
+  body.querySelectorAll("[data-sok]").forEach(b => b.onclick = () => busy(() => stockRpc("mm_stock_decide", { p_id: Number(b.dataset.sok), p_ok: true })));
+  body.querySelectorAll("[data-sno]").forEach(b => b.onclick = () => { if (confirm("반려할까요?")) busy(() => stockRpc("mm_stock_decide", { p_id: Number(b.dataset.sno), p_ok: false })); });
+}
+function stockCheck80Html(menus) {
+  const ln = (a, b) => `<div class="ln"><span>${a}</span><span>${b}</span></div>`;
+  const hr = "<div>--------------------------------</div>";
+  let c = null, rows = "";
+  menus.slice().sort((a, b) => catName(a).localeCompare(catName(b))).forEach(m => {
+    if (catName(m) !== c) { c = catName(m); rows += `<div style="margin-top:4px"><b>[${esc(c)}]</b></div>`; }
+    rows += `<div class="ln" style="font-size:15px"><span>□ <b>${esc(m.name)}</b></span><span>${n0(bookOf(m.id).qty)} / ____</span></div>`;
+  });
+  return `<div class="rc"><div style="text-align:center"><b style="font-size:20px">재고조사표</b><br>${ymd(Date.now())} ${hm(Date.now())}</div>${hr}
+    ${ln("품목", "장부 / 실수량")}${hr}${rows}${hr}
+    <div>조사자 ______ 확인 ______</div>
+    <div style="margin-top:24px;border-top:2px dashed #555;text-align:center;font-size:11px;color:#555">✂ - - - 절취선 - - -</div></div>`;
+}
 /* ===== 증빙(현금영수증/세금계산서) 발행 요청·확인 (직원·사장 전용) ===== */
 let evType = "none", evNo = "", evBiz = null;
 const EV_NAME = { cash: "현금영수증", tax: "세금계산서", none: "필요없음" };
