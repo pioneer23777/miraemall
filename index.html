@@ -207,17 +207,9 @@
 #printArea table{border-collapse:collapse;width:100%}#printArea td,#printArea th{border:1px solid #999;padding:3px 6px;font-size:12px}#printArea th{background:#eee}#printArea .r{text-align:right}
 #printArea .box{display:inline-block;width:13px;height:13px;border:1.5px solid #333;vertical-align:middle}
 #printArea .rc{width:72mm;font-family:'Noto Sans Mono CJK KR',monospace;font-size:13px;line-height:1.5}#printArea .rc .ln{display:flex;justify-content:space-between}
+#printArea .pb{break-before:page;page-break-before:always}
 #printArea .ob{border:1.5px solid #333;margin-bottom:10px;padding:8px;break-inside:avoid}}
 </style>
-<link rel="manifest" href="manifest.webmanifest" />
-<link rel="apple-touch-icon" href="icons/icon-180.png" />
-<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
-<meta name="theme-color" content="#1c1612" />
-<meta name="mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-title" content="미래몰" />
-<meta name="apple-mobile-web-app-status-bar-style" content="default" />
-<style>#pwaHint{margin-top:14px;text-align:center;font-size:12px;color:var(--muted)}#pwaHint button{font:inherit;font-size:12px;padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}</style>
 </head>
 <body>
 <div class="app">
@@ -233,7 +225,6 @@
         <input id="loginPw" type="password" placeholder="비밀번호" />
         <button class="btn primary" id="loginBtn">로그인 · 업데이트 확인</button>
         <button class="btn ghost" id="toJoin">고객 회원가입</button>
-        <div id="pwaHint" hidden></div>
       </div>
       <div id="joinBox" style="display:none">
         <label>상호 또는 이름</label>
@@ -725,7 +716,9 @@ function printBar() {
   return `<div class="actions" style="margin:0 0 10px;flex-wrap:wrap;align-items:center">
     <input type="date" id="printDate" value="${printDate}" style="width:auto;margin:0" />
     <button class="btn line small" id="printMulti">A4 모아찍기</button>
-    <button class="btn line small" id="printSum">A4 품목별 합계</button></div>
+    <button class="btn line small" id="printSum">A4 품목별 합계</button>
+    <button class="btn line small" id="printSum80">80mm 품목별 합계</button>
+    <button class="btn small" id="printAll80">80mm 한번에 출력</button></div>
     <p class="note" style="margin-top:0">체크한 주문이 있으면 그 주문만, 없으면 선택한 날짜 주문 전체를 출력합니다.</p>`;
 }
 function bindPrint() {
@@ -735,6 +728,8 @@ function bindPrint() {
   document.querySelectorAll("[data-rcpt]").forEach(b => b.onclick = () => printReceipt(db.orders.find(o => o.id === b.dataset.rcpt)));
   const m = document.getElementById("printMulti"); if (m) m.onclick = printMulti;
   const s = document.getElementById("printSum"); if (s) s.onclick = printSummary;
+  const s8 = document.getElementById("printSum80"); if (s8) s8.onclick = printSummary80;
+  const a8 = document.getElementById("printAll80"); if (a8) a8.onclick = printAll80;
 }
 function doPrint(html, size) {
   document.getElementById("printArea").innerHTML = html;
@@ -778,6 +773,33 @@ function summaryHtml(set) {
     <tr><th colspan="2">합계</th><th class="r">${n0(rows.reduce((a,r) => a + r.qty, 0))}</th><th></th><th class="r">${won(rows.reduce((a,r) => a + r.amt, 0))}</th><th></th></tr></table>
     <div style="font-size:12px;margin-top:20px">확인자 ______ 시각 ______</div>`;
 }
+function summaryRows(set) {
+  const map = new Map();
+  set.forEach(o => o.items.forEach(i => {
+    const m = db.menus.find(x => x.name === i.name);
+    const c = m && db.categories.find(x => x.id === m.categoryId);
+    const r = map.get(i.name) || { cat: c ? c.name : "-", corder: c ? c.order : 99, name: i.name, qty: 0, who: new Set(), amt: 0 };
+    r.qty += Number(i.qty) || 0; r.who.add(o.userId); r.amt += (Number(i.price) || 0) * (Number(i.qty) || 0); map.set(i.name, r);
+  }));
+  return [...map.values()].sort((a,b) => a.corder - b.corder || a.name.localeCompare(b.name));
+}
+function summary80Html(set) {
+  const rows = summaryRows(set);
+  const ln = (a, b) => `<div class="ln"><span>${a}</span><span>${b}</span></div>`;
+  const hr = "<div>--------------------------------</div>";
+  let cat = null, body = "";
+  rows.forEach(r => {
+    if (r.cat !== cat) { cat = r.cat; body += `<div style="margin-top:4px"><b>[${esc(cat)}]</b></div>`; }
+    body += `<div class="ln" style="font-size:15px"><span>□ <b>${esc(r.name)}</b></span><span><b>${n0(r.qty)}</b></span></div><div class="ln" style="font-size:11px;color:#444"><span>&nbsp;&nbsp;거래처 ${r.who.size}곳</span><span>${n0(r.amt)}</span></div>`;
+  });
+  return `<div class="rc"><div style="text-align:center"><b style="font-size:20px">품목별 합계</b><br>${printDate} · 주문 ${set.length}건</div>${hr}
+    ${ln("품목", "수량")}${hr}${body}${hr}
+    ${ln("총수량", n0(rows.reduce((a,r) => a + r.qty, 0)))}${ln("공급가 합계", n0(rows.reduce((a,r) => a + r.amt, 0)) + "원")}${hr}
+    <div>확인자 ______ 시각 ______</div>
+    <div style="margin-top:24px;border-top:2px dashed #555;text-align:center;font-size:11px;color:#555">✂ - - - 절취선 - - -</div></div>`;
+}
+function printSummary80() { const set = printSet(); if (!set.length) return alert("출력할 주문이 없습니다."); doPrint(summary80Html(set), "80mm auto"); }
+function printAll80() { const set = printSet(); if (!set.length) return alert("출력할 주문이 없습니다."); doPrint(summary80Html(set) + set.map(o => `<div class="pb">${receiptHtml(o)}</div>`).join(""), "80mm auto"); }
 function printSummary() { const set = printSet(); if (!set.length) return alert("출력할 주문이 없습니다."); doPrint(summaryHtml(set), "A4"); }
 
 function renderMenuAdmin() {
@@ -1139,19 +1161,5 @@ async function cloudInit() {
 cloudInit();
 </script>
 <div id="printArea"></div>
-<script>
-(function(){
-  if('serviceWorker' in navigator) window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
-  var h=document.getElementById('pwaHint'); if(!h) return;
-  var standalone=matchMedia('(display-mode: standalone)').matches||navigator.standalone;
-  if(standalone) return;
-  var ios=/iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
-  if(ios){h.textContent='📲 앱 설치: 사파리 공유 버튼 → 홈 화면에 추가 누르면 앱 설치 완료';h.hidden=false;}
-  var dp=null;
-  window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();dp=e;h.innerHTML='<button type="button">📲 앱 설치</button>';h.hidden=false;
-    h.firstChild.onclick=function(){dp.prompt();dp.userChoice.finally(function(){dp=null;h.hidden=true;});};});
-  window.addEventListener('appinstalled',function(){h.hidden=true;});
-})();
-</script>
 </body>
 </html>
