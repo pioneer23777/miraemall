@@ -1,0 +1,1091 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>미래몰 · 테스트</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+<style>
+  :root {
+    --bg: #efe4d4;
+    --ink: #1c1612;
+    --muted: #7a6d60;
+    --line: #e4d5c2;
+    --card: #fffaf3;
+    --accent: #b8432f;
+    --accent-ink: #fff8f2;
+    --boss: #8d5a1a;
+    --staff: #2f5d50;
+    --ok: #2c6b45;
+    --wait: #9a6420;
+    --shadow: 0 16px 40px rgba(70, 42, 18, 0.08);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: Pretendard, "Apple SD Gothic Neo", sans-serif;
+    background:
+      radial-gradient(900px 420px at 10% -10%, #f7e7cf 0%, transparent 55%),
+      linear-gradient(180deg, #f3e7d6, var(--bg));
+    color: var(--ink);
+  }
+  button, input, select { font-family: inherit; }
+  button { cursor: pointer; }
+  .app {
+    width: min(440px, 100%);
+    min-height: 100%;
+    margin: 0 auto;
+    background: #f7f1e7;
+    position: relative;
+    box-shadow: var(--shadow);
+  }
+  .screen { display: none; min-height: 100vh; }
+  .screen.on { display: block; }
+  .auth {
+    padding: 28px 22px 40px;
+  }
+  .mark {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 22px;
+  }
+  .seal {
+    width: 42px; height: 42px; border-radius: 14px;
+    background: var(--ink); color: #f4e2c4;
+    display: grid; place-items: center; font-weight: 800; letter-spacing: -0.04em;
+  }
+  .mark b { font-size: 20px; letter-spacing: -0.04em; }
+  .mark span { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+  h1 { font-size: 28px; line-height: 1.25; letter-spacing: -0.045em; margin: 0 0 8px; }
+  .sub { color: var(--muted); font-size: 14px; line-height: 1.5; margin: 0 0 22px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 6px; }
+  input, select {
+    width: 100%; border: 1px solid var(--line); background: white;
+    border-radius: 12px; padding: 13px 14px; font-size: 15px; color: var(--ink);
+  }
+  input:focus, select:focus { outline: 2px solid #e7c7a4; border-color: #d7b48a; }
+  .btn {
+    width: 100%; border: 0; border-radius: 14px; padding: 14px 16px;
+    font-size: 15px; font-weight: 700; letter-spacing: -0.03em;
+  }
+  .btn.primary { background: var(--ink); color: #f6eadc; margin-top: 16px; }
+  .btn.ghost { background: transparent; color: var(--ink); margin-top: 8px; }
+  .btn.accent { background: var(--accent); color: var(--accent-ink); }
+  .btn.line { background: white; border: 1px solid var(--line); color: var(--ink); }
+  .btn.small { width: auto; padding: 8px 12px; border-radius: 10px; font-size: 13px; }
+  .btn:disabled { opacity: 0.45; }
+  .demo {
+    margin-top: 22px; background: #fff; border-radius: 16px; padding: 14px;
+    border: 1px dashed #e0d0bc;
+  }
+  .demo p { margin: 0 0 8px; font-size: 12px; color: var(--muted); }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+  .chip {
+    border: 1px solid var(--line); background: #fffaf3; border-radius: 999px;
+    padding: 7px 10px; font-size: 12px;
+  }
+  .note { font-size: 12px; color: var(--muted); line-height: 1.45; margin-top: 14px; }
+  .top {
+    position: sticky; top: 0; z-index: 5;
+    background: rgba(247, 241, 231, 0.94); backdrop-filter: blur(10px);
+    padding: 14px 16px 10px; border-bottom: 1px solid transparent;
+  }
+  .top row, .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .who { font-size: 13px; color: var(--muted); }
+  .who b { color: var(--ink); }
+  .role {
+    font-size: 11px; font-weight: 700; border-radius: 999px; padding: 3px 8px; color: white;
+  }
+  .role.boss { background: var(--boss); }
+  .role.staff { background: var(--staff); }
+  .role.customer { background: var(--accent); }
+  .cats {
+    display: flex; gap: 4px; padding: 4px 0 2px;
+  }
+  .cat {
+    flex: 1 1 0; min-width: 0; border: 0; background: white; color: var(--ink); border-radius: 999px;
+    padding: 7px 0; font-weight: 700; font-size: 11px; letter-spacing: -0.05em;
+    white-space: nowrap; text-align: center;
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+  .cat.on { background: var(--ink); color: #f6eadc; box-shadow: none; }
+  .pad { padding: 8px 16px 110px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .card {
+    background: var(--card); border-radius: 18px; overflow: hidden;
+    box-shadow: 0 8px 20px rgba(70, 42, 18, 0.05);
+  }
+  .card img, .ph {
+    width: 100%; height: 110px; object-fit: cover; display: block; background: #efe2d2;
+  }
+  .ph { display: grid; place-items: center; color: #8a7562; font-weight: 800; letter-spacing: -0.04em; }
+  .card .meta { padding: 10px 12px 12px; }
+  .card .meta b { display: block; font-size: 14px; letter-spacing: -0.03em; }
+  .card .meta span { color: var(--muted); font-size: 13px; }
+  .add {
+    margin-top: 8px; width: 100%; border: 0; border-radius: 10px;
+    background: #f3e6d6; color: var(--ink); padding: 8px; font-weight: 700;
+  }
+  .tabs { display: flex; gap: 6px; margin-top: 10px; }
+  .tab {
+    flex: 1; border: 0; background: transparent; color: var(--muted);
+    padding: 8px 4px; font-weight: 700; border-bottom: 2px solid transparent;
+  }
+  .tab.on { color: var(--ink); border-color: var(--ink); }
+  .list { display: flex; flex-direction: column; gap: 10px; }
+  .item {
+    background: white; border-radius: 16px; padding: 14px;
+    box-shadow: 0 8px 20px rgba(70, 42, 18, 0.04);
+  }
+  .item h3 { margin: 0 0 4px; font-size: 15px; letter-spacing: -0.03em; }
+  .item p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
+  .badge {
+    display: inline-block; font-size: 11px; font-weight: 700; border-radius: 999px;
+    padding: 3px 7px; background: #f4e7d4; color: var(--wait);
+  }
+  .badge.ok { background: #e5f2e8; color: var(--ok); }
+  .badge.no { background: #f8e4df; color: var(--accent); }
+  .actions { display: flex; gap: 8px; margin-top: 10px; }
+  .cart {
+    position: sticky; bottom: 0; background: var(--ink); color: #f6eadc;
+    margin: 0 12px 12px; border-radius: 18px; padding: 14px 14px;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  }
+  .cart button { width: auto; margin: 0; background: #f6eadc; color: var(--ink); }
+  .overlay {
+    position: fixed; inset: 0; background: rgba(28, 22, 18, 0.46);
+    display: none; align-items: flex-end; justify-content: center; z-index: 20;
+  }
+  .overlay.on { display: flex; }
+  .sheet {
+    width: min(440px, 100%); background: #fffaf3; border-radius: 22px 22px 0 0;
+    padding: 18px 16px 28px; max-height: 86vh; overflow: auto;
+  }
+  .sync {
+    position: fixed; inset: 0; background: #1c1612; color: #f6eadc;
+    display: none; place-items: center; z-index: 30; text-align: center; padding: 24px;
+  }
+  .sync.on { display: grid; }
+  .sync b { font-size: 22px; letter-spacing: -0.04em; }
+  .sync span { color: #cbbba6; font-size: 14px; }
+  .empty { text-align: center; color: var(--muted); padding: 28px 10px; font-size: 14px; }
+  .qty { display: flex; align-items: center; gap: 8px; }
+  .qty button {
+    width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--line); background: white;
+  }
+  .split { display: flex; gap: 8px; }
+  .split .btn { margin-top: 0; }
+  .photo-row { display: flex; gap: 10px; align-items: center; margin-top: 8px; }
+  .photo-row img { width: 64px; height: 64px; object-fit: cover; border-radius: 12px; background: #efe2d2; }
+  .warn { background: #fff4e8; border-radius: 12px; padding: 10px 12px; font-size: 13px; color: #7a4e16; }
+  #mileChip { font-size: 11px; font-weight: 700; color: #8d5a1a; }
+  .check { display: flex; align-items: center; gap: 8px; margin: 12px 0; font-size: 14px; }
+  .check input { width: auto; }
+
+  .totals { margin-top: 12px; background: white; border-radius: 16px; padding: 12px 14px; }
+  .totals div { display: flex; justify-content: space-between; padding: 6px 0; font-size: 14px; color: #7a6d60; }
+  .totals div.sum { color: #1c1612; font-weight: 800; border-top: 1px solid #e4d5c2; margin-top: 4px; padding-top: 10px; }
+  .acct { background: #1c1612; color: #f6eadc; border-radius: 16px; padding: 14px; margin: 8px 0 14px; }
+  .acct b { display: block; font-size: 20px; letter-spacing: -0.03em; margin-top: 4px; }
+
+  .heart-pop {
+    position: fixed; z-index: 80; pointer-events: none; line-height: 1;
+    animation: heartFloat .75s ease-out forwards;
+  }
+  @keyframes heartFloat {
+    0% { transform: translate(0, 0) scale(0.3); opacity: 1; }
+    100% { transform: translate(var(--dx), -64px) scale(1.15); opacity: 0; }
+  }
+
+  .star { border: 0; background: transparent; color: #c4a15a; font-size: 16px; padding: 0 4px 0 0; line-height: 1; }
+  .star.on { color: #d39b12; }
+  .name-line { display: flex; align-items: center; }
+  .pick { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 8px; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style id="printCss">
+#printArea{display:none}
+@media print{html,body{background:#fff!important;padding:0!important;margin:0!important}body>*:not(#printArea){display:none!important}#printArea{display:block!important;color:#111;font-family:'Noto Sans CJK KR',sans-serif}
+#printArea table{border-collapse:collapse;width:100%}#printArea td,#printArea th{border:1px solid #999;padding:3px 6px;font-size:12px}#printArea th{background:#eee}#printArea .r{text-align:right}
+#printArea .box{display:inline-block;width:13px;height:13px;border:1.5px solid #333;vertical-align:middle}
+#printArea .rc{width:72mm;font-family:'Noto Sans Mono CJK KR',monospace;font-size:13px;line-height:1.5}#printArea .rc .ln{display:flex;justify-content:space-between}
+#printArea .ob{border:1.5px solid #333;margin-bottom:10px;padding:8px;break-inside:avoid}}
+</style>
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="apple-touch-icon" href="icons/icon-180.png" />
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
+<meta name="theme-color" content="#1c1612" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="미래몰" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<style>#pwaHint{margin-top:14px;text-align:center;font-size:12px;color:var(--muted)}#pwaHint button{font:inherit;font-size:12px;padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}</style>
+</head>
+<body>
+<div class="app">
+  <section class="screen on" id="auth">
+    <div class="auth">
+      <div class="mark"><div class="seal">미</div><div><b>미래몰</b><span>테스트 · 이 브라우저에만 저장</span></div></div>
+      <h1 id="authTitle">로그인</h1>
+      <p class="sub" id="authSub">사장, 직원, 고객이 한 주소에서 권한만 다르게 들어옵니다.</p>
+      <div id="loginBox">
+        <label>휴대폰 번호</label>
+        <input id="loginPhone" inputmode="numeric" placeholder="01012345678" />
+        <label>비밀번호</label>
+        <input id="loginPw" type="password" placeholder="비밀번호" />
+        <button class="btn primary" id="loginBtn">로그인 · 업데이트 확인</button>
+        <button class="btn ghost" id="toJoin">고객 회원가입</button>
+        <div id="pwaHint" hidden></div>
+      </div>
+      <div id="joinBox" style="display:none">
+        <label>상호 또는 이름</label>
+        <input id="joinName" placeholder="예: 홍대점" />
+        <label>휴대폰 번호</label>
+        <input id="joinPhone" inputmode="numeric" placeholder="01012345678" />
+        <label>비밀번호</label>
+        <input id="joinPw" type="password" placeholder="4자 이상" />
+        <p class="note">인증번호는 보내지 않습니다. 사장 또는 직원이 승인하면 이 번호로 로그인됩니다.</p>
+        <button class="btn primary" id="joinBtn">가입 신청</button>
+        <button class="btn ghost" id="toLogin">로그인으로</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="screen" id="main">
+    <div class="top">
+      <div class="row">
+        <div class="who">미래몰 · <b id="userName"></b> <span class="role" id="userRole"></span> <span id="mileChip"></span></div>
+        <span><button class="btn line small" id="pwBtn">비밀번호 변경</button> <button class="btn line small" id="logoutBtn">나가기</button></span>
+      </div>
+      <div class="cats" id="cats"></div>
+      <div class="tabs" id="tabs"></div>
+    </div>
+    <div class="pad" id="body"></div>
+  </section>
+</div>
+
+<div class="sync" id="sync">
+  <div>
+    <b>업데이트 확인 중</b><br />
+    <span id="syncMsg">최신 메뉴와 승인 내역을 불러오는 중입니다.</span>
+  </div>
+</div>
+<div class="overlay" id="overlay"><div class="sheet" id="sheet"></div></div>
+
+<script>
+const KEY = "baljupan-test-v4";
+const ROLE = { boss: "사장", staff: "직원", customer: "고객" };
+
+const seed = () => ({
+  version: 1,
+  users: [],
+  categories: [
+    { id: "c-drink", name: "음료", status: "active", order: 1 },
+    { id: "c-alc", name: "주류", status: "active", order: 2 },
+    { id: "c-etc", name: "그외", status: "active", order: 3 }
+  ],
+  menus: [
+    { id: "m1", categoryId: "c-drink", name: "콜라", price: 2000, mileage: 20, photo: "", status: "active" },
+    { id: "m2", categoryId: "c-drink", name: "사이다", price: 2000, mileage: 20, photo: "", status: "active" },
+    { id: "m3", categoryId: "c-alc", name: "카스", price: 5000, mileage: 50, photo: "", status: "active" },
+    { id: "m4", categoryId: "c-alc", name: "참이슬", price: 5000, mileage: 50, photo: "", status: "active" },
+    { id: "m5", categoryId: "c-etc", name: "마른안주", price: 8000, mileage: 80, photo: "", status: "active" }
+  ],
+  requests: [],
+  orders: [],
+  posts: [
+    { id: "n1", kind: "notice", title: "배송 안내", body: "오후 4시 이전 발주는 다음날 도착합니다.", at: Date.now(), by: "사장" },
+    { id: "e1", kind: "event", title: "주류 적립 2배", body: "이번 주 주류 발주는 마일리지가 두 배입니다.", at: Date.now(), by: "사장" }
+  ],
+  popup: { title: "미래몰 안내", body: "신규 거래처 첫 발주 마일리지를 확인해 주세요." },
+  changelog: ["기본 분류 음료, 주류, 그외가 준비되어 있습니다."]
+});
+
+let db = load();
+let session = null;
+let tab = "order";
+let cat = "c-drink";
+let cart = [];
+let pickQty = {};
+let usePoints = false;
+let lastSyncNotes = [];
+
+function load() {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return seed();
+    const parsed = JSON.parse(raw);
+    if (!parsed.categories || !parsed.users) return seed();
+    parsed.posts = parsed.posts || [];
+    parsed.popup = parsed.popup || { title: "미래몰 안내", body: "신규 거래처 첫 발주 마일리지를 확인해 주세요." };
+    return parsed;
+  } catch (e) {
+    return seed();
+  }
+}
+function save() { localStorage.setItem(KEY, JSON.stringify(db)); cloudPush(); }
+function uid(p) { return p + Math.random().toString(36).slice(2, 8); }
+function won(n) { return Number(n || 0).toLocaleString("ko-KR") + "원"; }
+function pt(n) { return Number(n || 0).toLocaleString("ko-KR") + "P"; }
+function mileOf(m) { return Number(m && m.mileage) || 0; }
+function phone(v) { return String(v || "").replace(/\D/g, ""); }
+function fmtPhone(p) { p = phone(p); return p.length === 11 ? p.slice(0,3) + "-" + p.slice(3,7) + "-" + p.slice(7) : p.length === 10 ? p.slice(0,3) + "-" + p.slice(3,6) + "-" + p.slice(6) : p; }
+function showPhone(p) { p = phone(p); if (session && session.role === "staff") return p.slice(0,3) + "-****-" + p.slice(-4); return fmtPhone(p); }
+function esc(s) {
+  const d = document.createElement("div");
+  d.textContent = s == null ? "" : String(s);
+  return d.innerHTML;
+}
+function when(t) {
+  const d = new Date(t);
+  return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+}
+
+function activeCats() { return db.categories.filter(c => c.status === "active").sort((a,b) => a.order - b.order); }
+function activeMenus(cid) { return db.menus.filter(m => m.status === "active" && m.categoryId === cid); }
+
+function show(id) {
+  document.querySelectorAll(".screen").forEach(s => s.classList.remove("on"));
+  document.getElementById(id).classList.add("on");
+}
+function openSheet(html) {
+  document.getElementById("sheet").innerHTML = html;
+  document.getElementById("overlay").classList.add("on");
+}
+function closeSheet() { document.getElementById("overlay").classList.remove("on"); }
+document.getElementById("overlay").addEventListener("click", e => { if (e.target.id === "overlay") closeSheet(); });
+
+function syncThen(next) {
+  const box = document.getElementById("sync");
+  const msg = document.getElementById("syncMsg");
+  box.classList.add("on");
+  msg.textContent = "최신 메뉴와 승인 내역을 확인하고 있습니다.";
+  setTimeout(async () => {
+    try { if (!(await cloudPull())) db = load(); } catch (e) { db = load(); }
+    if (session) { const me = db.users.find(u => u.id === session.id); if (me) session = me; }
+    const notes = db.changelog.slice(-3);
+    lastSyncNotes = notes;
+    msg.textContent = notes.length ? notes[notes.length - 1] : "새 업데이트 없이 최신 상태입니다.";
+    setTimeout(() => {
+      box.classList.remove("on");
+      next();
+    }, 700);
+  }, 650);
+}
+
+function enter() {
+  show("main");
+  tab = session.role === "customer" ? "order" : "orders";
+  cat = "all";
+  cart = [];
+  pickQty = {};
+  usePoints = false;
+  render();
+  maybeShowAd();
+}
+function todayKey() {
+  const d = new Date();
+  return d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate();
+}
+function maybeShowAd() {
+  const popup = db.popup || {};
+  if (!popup.body) return;
+  const hidden = localStorage.getItem("miraemall-ad-hide-" + session.id);
+  if (hidden === todayKey()) return;
+  openSheet(`<h2>${esc(popup.title || "안내")}</h2><p class="sub">${esc(popup.body)}</p>
+    <div class="split">
+      <button class="btn line" id="hideToday">오늘하루 안보기</button>
+      <button class="btn primary" id="closeAd">닫기</button>
+    </div>`);
+  document.getElementById("hideToday").onclick = () => {
+    localStorage.setItem("miraemall-ad-hide-" + session.id, todayKey());
+    closeSheet();
+  };
+  document.getElementById("closeAd").onclick = closeSheet;
+}
+
+document.getElementById("loginBtn").onclick = async () => {
+  const p = phone(document.getElementById("loginPhone").value);
+  const pw = document.getElementById("loginPw").value;
+  let user;
+  if (cloud.ok) {
+    let r; try { r = await cloudLogin(p, pw); } catch (e) { return alert("서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요."); }
+    user = r.user || (r.error === "pending" || r.error === "rejected" ? { status: r.error } : null);
+  } else user = db.users.find(u => u.phone === p && u.pw === pw);
+  if (!user) return alert("번호 또는 비밀번호가 맞지 않습니다.");
+  if (user.status === "pending") return alert("가입 승인 대기 중입니다. 사장 또는 직원이 승인하면 로그인됩니다.");
+  if (user.status === "rejected") return alert("가입이 거절된 번호입니다.");
+  session = user;
+  syncThen(enter);
+};
+document.getElementById("toJoin").onclick = () => {
+  document.getElementById("loginBox").style.display = "none";
+  document.getElementById("joinBox").style.display = "block";
+  document.getElementById("authTitle").textContent = "고객 가입";
+  document.getElementById("authSub").textContent = "휴대폰 번호로만 신청합니다. 인증번호 없이 사장 승인으로 가입됩니다.";
+};
+document.getElementById("toLogin").onclick = () => {
+  document.getElementById("joinBox").style.display = "none";
+  document.getElementById("loginBox").style.display = "block";
+  document.getElementById("authTitle").textContent = "로그인";
+  document.getElementById("authSub").textContent = "사장, 직원, 고객이 한 주소에서 권한만 다르게 들어옵니다.";
+};
+document.getElementById("joinBtn").onclick = async () => {
+  const name = document.getElementById("joinName").value.trim();
+  const p = phone(document.getElementById("joinPhone").value);
+  const pw = document.getElementById("joinPw").value;
+  if (!name || p.length < 10 || pw.length < 4) return alert("상호, 번호, 비밀번호(4자 이상)를 확인해 주세요.");
+  if (cloud.ok) {
+    const r = await cloud.sb.rpc("mm_signup", { p_name: name, p_phone: p, p_pw: pw });
+    if (r.error) return alert("서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+    if (r.data.error === "dup") return alert("이미 등록된 번호입니다.");
+    if (r.data.error) return alert("상호, 번호, 비밀번호(4자 이상)를 확인해 주세요.");
+  } else {
+  if (db.users.some(u => u.phone === p)) return alert("이미 등록된 번호입니다.");
+  db.users.push({ id: uid("u"), role: "customer", name, phone: p, pw, status: "pending" });
+  save();
+  }
+  alert("가입 신청이 들어갔습니다. 사장 또는 직원이 승인하면 로그인할 수 있습니다.");
+  document.getElementById("toLogin").click();
+};
+document.querySelectorAll(".chip").forEach(ch => ch.onclick = () => {
+  document.getElementById("loginPhone").value = ch.dataset.phone;
+  document.getElementById("loginPw").value = ch.dataset.pw;
+});
+document.getElementById("pwBtn").onclick = () => {
+  openSheet(`<h2>비밀번호 변경</h2><label>현재 비밀번호</label><input id="pwOld" type="password" />
+    <label>새 비밀번호</label><input id="pwNew" type="password" /><label>새 비밀번호 확인</label><input id="pwNew2" type="password" />
+    <button class="btn primary" id="pwSave">변경</button>`);
+  document.getElementById("pwSave").onclick = async () => {
+    const o = document.getElementById("pwOld").value, n = document.getElementById("pwNew").value;
+    if (n.length < 4) return alert("새 비밀번호는 4자 이상이어야 합니다.");
+    if (n !== document.getElementById("pwNew2").value) return alert("새 비밀번호 확인이 맞지 않습니다.");
+    if (!cloud.ok) return alert("온라인 저장소에 연결된 상태에서만 바꿀 수 있습니다.");
+    const r = await cloud.sb.rpc("mm_change_password", { p_token: cloudToken(), p_old: o, p_new: n });
+    if (r.error) return alert("변경하지 못했습니다. 다시 로그인해 주세요.");
+    if (r.data.error === "old") return alert("현재 비밀번호가 맞지 않습니다.");
+    if (!r.data.ok) return alert("변경하지 못했습니다.");
+    closeSheet(); alert("비밀번호를 바꿨습니다.");
+  };
+};
+document.getElementById("logoutBtn").onclick = () => { if (cloud.ok && cloudToken()) cloud.sb.rpc("mm_logout", { p_token: cloudToken() }); localStorage.removeItem("mm-token"); session = null; cart = []; show("auth"); };
+
+function render() {
+  document.getElementById("userName").textContent = session.name;
+  const roleEl = document.getElementById("userRole");
+  roleEl.textContent = ROLE[session.role];
+  roleEl.className = "role " + session.role;
+  const chip = document.getElementById("mileChip");
+  chip.textContent = session.role === "customer" ? "마일리지 " + pt(session.mileage) : "";
+  renderCats();
+  renderTabs();
+  if (tab === "order") renderOrder();
+  if (tab === "mine") renderMine();
+  if (tab === "orders") renderOrders();
+  if (tab === "menu") renderMenuAdmin();
+  if (tab === "approve") renderApprove();
+  if (tab === "joins") renderJoins();
+  if (tab === "cart") renderCart();
+  if (tab === "board") renderBoardAdmin();
+  if (cat === "notice" || cat === "event") renderBoard();
+}
+// Q/A 안내 문구: 전화번호 추가 시 여기만 고치면 됩니다.
+const QA_MESSAGE = "문의사항은 회사로 연락해 주세요.";
+function showQA() {
+  openSheet(`<h2>Q/A</h2><p class="sub">${esc(QA_MESSAGE)}</p><button class="btn primary" id="closeQA">닫기</button>`);
+  document.getElementById("closeQA").onclick = closeSheet;
+}
+function renderCats() {
+  const wrap = document.getElementById("cats");
+  const showCats = session.role === "customer";
+  wrap.style.display = showCats ? "flex" : "none";
+  const cats = [{ id: "all", name: "전체" }].concat(activeCats()).concat([{ id: "fav", name: "즐겨찾기" }, { id: "notice", name: "공지" }, { id: "event", name: "이벤트" }, { id: "qa", name: "Q/A" }]);
+  wrap.innerHTML = cats.map(c =>
+    `<button class="cat ${c.id === cat ? "on" : ""}" data-cat="${c.id}">${esc(c.name)}</button>`
+  ).join("");
+  wrap.querySelectorAll(".cat").forEach(b => b.onclick = () => {
+    if (b.dataset.cat === "qa") { showQA(); return; }
+    cat = b.dataset.cat;
+    if (cat !== "notice" && cat !== "event") tab = "order";
+    render();
+  });
+}
+function favIds() {
+  db.favorites = db.favorites || {};
+  return db.favorites[session.id] || [];
+}
+function isFav(id) { return favIds().includes(id); }
+function toggleFav(id) {
+  const list = favIds();
+  db.favorites[session.id] = list.includes(id) ? list.filter(x => x !== id) : list.concat(id);
+  save();
+}
+function menusForCat() {
+  const live = db.menus.filter(m => m.status === "active");
+  if (cat === "all") return live;
+  if (cat === "fav") return live.filter(m => isFav(m.id));
+  return live.filter(m => m.categoryId === cat);
+}
+function renderTabs() {
+  const tabs = session.role === "customer"
+    ? [["order", "발주"], ["cart", "장바구니"], ["mine", "내 주문"]]
+    : session.role === "staff"
+      ? [["orders", "주문내역"], ["menu", "메뉴관리"], ["joins", "가입승인"], ["board", "글관리"]]
+      : [["orders", "주문내역"], ["menu", "메뉴관리"], ["approve", "승인"], ["board", "글관리"]];
+  document.getElementById("tabs").innerHTML = tabs.map(([id, name]) =>
+    `<button class="tab ${tab === id ? "on" : ""}" data-tab="${id}">${name}</button>`
+  ).join("");
+  document.querySelectorAll(".tab").forEach(b => b.onclick = () => { tab = b.dataset.tab; render(); });
+}
+function photoBlock(m) {
+  if (m.photo) return `<img src="${m.photo}" alt="" />`;
+  return `<div class="ph">${esc(m.name.slice(0, 2))}</div>`;
+}
+function renderOrder() {
+  const menus = menusForCat();
+  const empty = cat === "fav" ? "즐겨찾기한 메뉴가 없습니다. 이름 앞 별을 눌러 주세요." : "이 분류에 승인된 메뉴가 없습니다.";
+  document.getElementById("body").innerHTML = menus.length ? `<div class="grid">${menus.map(m => `
+    <article class="card">
+      ${photoBlock(m)}
+      <div class="meta">
+        <div class="name-line">${session.role === "customer" ? `<button class="star ${isFav(m.id) ? "on" : ""}" data-fav="${m.id}">${isFav(m.id) ? "★" : "☆"}</button>` : ""}<b>${esc(m.name)}</b></div>
+        <span>${won(m.price)} · 적립 ${pt(mileOf(m))}</span>
+        ${session.role === "customer" ? `<div class="pick"><div class="qty"><button data-dec="${m.id}">-</button><span>${pickQty[m.id] || 1}</span><button data-inc="${m.id}">+</button></div><button class="add" data-add="${m.id}" style="width:auto;margin:0">담기</button></div>` : ""}
+      </div>
+    </article>`).join("")}</div>` : `<div class="empty">${empty}</div>`;
+  document.querySelectorAll("[data-fav]").forEach(b => b.onclick = () => { toggleFav(b.dataset.fav); render(); });
+  document.querySelectorAll("[data-dec]").forEach(b => b.onclick = () => {
+    const n = pickQty[b.dataset.dec] || 1;
+    pickQty[b.dataset.dec] = Math.max(1, n - 1);
+    render();
+  });
+  document.querySelectorAll("[data-inc]").forEach(b => b.onclick = () => {
+    pickQty[b.dataset.inc] = (pickQty[b.dataset.inc] || 1) + 1;
+    render();
+  });
+  document.querySelectorAll("[data-add]").forEach(b => b.onclick = () => {
+    const m = db.menus.find(x => x.id === b.dataset.add);
+    const qty = pickQty[m.id] || 1;
+    const hit = cart.find(i => i.id === m.id);
+    if (hit) hit.qty += qty; else cart.push({ id: m.id, name: m.name, price: m.price, mileage: mileOf(m), qty });
+    pickQty[m.id] = 1;
+    render();
+  });
+}
+function renderCart() {
+  const supply = cart.reduce((s, i) => s + i.qty * i.price, 0);
+  const vat = Math.round(supply * 0.1);
+  const total = supply + vat;
+  const earn = cart.reduce((s, i) => s + i.qty * (Number(i.mileage) || 0), 0);
+  const have = Number(session.mileage) || 0;
+  const used = usePoints ? Math.min(have, total) : 0;
+  const pay = total - used;
+  document.getElementById("body").innerHTML = cart.length ? `<div class="list">${cart.map(i => `
+    <article class="item"><div class="row"><b>${esc(i.name)}</b>
+      <div class="qty"><button data-cm="${i.id}">-</button><span>${i.qty}</span><button data-cp="${i.id}">+</button></div></div>
+      <p>공급가 ${won(i.price * i.qty)} · 적립 ${pt((Number(i.mileage) || 0) * i.qty)}</p></article>`).join("")}</div>
+      <label class="check"><input id="usePt" type="checkbox" ${usePoints ? "checked" : ""}/> 포인트 사용 · 보유 ${pt(have)} · 1P = 1원</label>
+      <div class="totals">
+        <div><span>공급가</span><b>${won(supply)}</b></div>
+        <div><span>부가세</span><b>${won(vat)}</b></div>
+        <div><span>포인트 사용</span><b>-${won(used)}</b></div>
+        <div><span>적립 예정</span><b>${pt(earn)}</b></div>
+        <div class="sum"><span>합계</span><b>${won(pay)}</b></div>
+      </div>
+      <button class="btn primary" id="place">발주하기</button>`
+    : `<div class="empty">장바구니가 비어 있습니다. 발주에서 수량을 정한 뒤 담아 주세요.</div>`;
+  document.querySelectorAll("[data-cm]").forEach(b => b.onclick = () => {
+    const i = cart.find(x => x.id === b.dataset.cm);
+    i.qty -= 1;
+    if (i.qty <= 0) cart = cart.filter(x => x.id !== i.id);
+    render();
+  });
+  document.querySelectorAll("[data-cp]").forEach(b => b.onclick = () => {
+    cart.find(x => x.id === b.dataset.cp).qty += 1;
+    render();
+  });
+  const useBox = document.getElementById("usePt");
+  if (useBox) useBox.onchange = () => { usePoints = useBox.checked; render(); };
+  const place = document.getElementById("place");
+  if (place) place.onclick = () => {
+    const order = {
+      id: uid("o"), userId: session.id, name: session.name, phone: session.phone,
+      items: cart.map(i => ({ name: i.name, qty: i.qty, price: i.price, mileage: Number(i.mileage) || 0 })),
+      supply, vat, total: pay, used, earn, status: "입금대기", at: Date.now()
+    };
+    db.orders.push(order);
+    const me = db.users.find(u => u.id === session.id);
+    me.mileage = (Number(me.mileage) || 0) - used + earn;
+    session.mileage = me.mileage;
+    save();
+    cart = [];
+    openSheet(`<h2>입금 계좌</h2>
+      <p class="sub">합계 ${won(pay)}을 아래 계좌로 보내 주세요. 테스트 계좌입니다.</p>
+      <div class="acct"><span>국민은행 · 미래몰</span><b>000000-00-000000</b></div>
+      <div class="totals">
+        <div><span>공급가</span><b>${won(supply)}</b></div>
+        <div><span>부가세</span><b>${won(vat)}</b></div>
+        <div><span>포인트 사용</span><b>-${won(used)}</b></div>
+        <div class="sum"><span>합계</span><b>${won(pay)}</b></div>
+      </div>
+      <p class="note">포인트 ${pt(used)} 사용, ${pt(earn)} 적립. 보유 ${pt(session.mileage)}</p>
+      <button class="btn primary" id="paid">확인</button>`);
+    document.getElementById("paid").onclick = () => { closeSheet(); tab = "mine"; render(); };
+  };
+}
+
+function renderBoard() {
+  const kind = cat === "event" ? "event" : "notice";
+  const title = kind === "event" ? "이벤트" : "공지";
+  const list = (db.posts || []).filter(p => p.kind === kind).slice().reverse();
+  document.getElementById("body").innerHTML = `<h3 style="margin:4px 0 10px">${title}</h3>` + (list.length ? `<div class="list">${list.map(p => `
+    <article class="item"><h3>${esc(p.title)}</h3><p>${esc(p.body)}</p><p>${when(p.at)} · ${esc(p.by || "")}</p></article>`).join("")}</div>` : `<div class="empty">등록된 ${title}가 없습니다.</div>`);
+}
+function renderBoardAdmin() {
+  const popup = db.popup || { title: "", body: "" };
+  document.getElementById("body").innerHTML = `
+    <div class="warn">여기 글은 사장과 직원이 바로 올릴 수 있습니다. 로그인 광고는 고객이 로그인할 때 창으로 뜹니다.</div>
+    <h3 style="margin:14px 0 8px;font-size:15px">로그인 광고</h3>
+    <label>제목</label><input id="adTitle" value="${esc(popup.title || "")}" />
+    <label>내용</label><input id="adBody" value="${esc(popup.body || "")}" />
+    <button class="btn primary" id="saveAd">광고 저장</button>
+    <h3 style="margin:16px 0 8px;font-size:15px">공지 · 이벤트</h3>
+    <label>종류</label><select id="postKind"><option value="notice">공지</option><option value="event">이벤트</option></select>
+    <label>제목</label><input id="postTitle" />
+    <label>내용</label><input id="postBody" />
+    <button class="btn line" id="savePost">글 등록</button>`;
+  document.getElementById("saveAd").onclick = () => {
+    db.popup = { title: document.getElementById("adTitle").value.trim(), body: document.getElementById("adBody").value.trim() };
+    save();
+    alert("저장했습니다. 다음 로그인부터 광고창으로 뜹니다.");
+  };
+  document.getElementById("savePost").onclick = () => {
+    const title = document.getElementById("postTitle").value.trim();
+    const body = document.getElementById("postBody").value.trim();
+    if (!title || !body) return alert("제목과 내용을 입력해 주세요.");
+    db.posts = db.posts || [];
+    db.posts.push({ id: uid("p"), kind: document.getElementById("postKind").value, title, body, at: Date.now(), by: session.name });
+    save();
+    render();
+  };
+}
+function renderMine() {
+  const list = db.orders.filter(o => o.userId === session.id).slice().reverse();
+  document.getElementById("body").innerHTML = list.length ? `<div class="list">${list.map(o => `
+    <article class="item"><h3>${won(o.total)} <span class="badge ${o.status === "완료" ? "ok" : ""}">${esc(o.status)}</span></h3>
+      <p>${esc(o.items.map(i => i.name + " " + i.qty).join(", "))}</p><p>${when(o.at)} · 적립 ${pt(o.earn)}</p></article>`).join("")}</div>`
+    : `<div class="empty">아직 발주한 내역이 없습니다.</div>`;
+}
+function renderOrders() {
+  const list = db.orders.slice().reverse();
+  document.getElementById("body").innerHTML = printBar() + `<p class="note" style="margin-top:0">로그인할 때마다 최신 주문을 다시 읽습니다. ${lastSyncNotes[0] ? "최근 반영: " + esc(lastSyncNotes[lastSyncNotes.length-1]) : ""}</p>`
+    + (list.length ? `<div class="list">${list.map(o => `
+      <article class="item"><h3><input type="checkbox" data-pick="${o.id}" ${printPick.has(o.id) ? "checked" : ""} style="width:auto;margin:0 6px 0 0" />${esc(o.name)} · ${won(o.total)} <span class="badge ${o.status === "완료" ? "ok" : ""}">${esc(o.status)}</span></h3>
+        <p>${esc(o.items.map(i => i.name + " " + i.qty).join(", "))}</p><p>${when(o.at)} · ${esc(showPhone(o.phone))}</p>
+        <div class="actions">
+          <button class="btn line small" data-st="${o.id}" data-v="접수">접수</button>
+          <button class="btn line small" data-st="${o.id}" data-v="완료">완료</button>
+          <button class="btn line small" data-rcpt="${o.id}">영수증 출력</button>
+        </div></article>`).join("")}</div>` : `<div class="empty">들어온 발주가 없습니다.</div>`);
+  document.querySelectorAll("[data-st]").forEach(b => b.onclick = () => {
+    const o = db.orders.find(x => x.id === b.dataset.st);
+    o.status = b.dataset.v; save(); render();
+  });
+  bindPrint();
+}
+/* ===== 출력 (영수증 80mm / A4 모아찍기 / A4 품목별 합계) ===== */
+let printDate = "";
+const printPick = new Set();
+function ymd(t) { const d = new Date(t); return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0"); }
+function hm(t) { const d = new Date(t); return String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0"); }
+function orderNo(o) { const day = ymd(o.at); const same = db.orders.filter(x => ymd(x.at) === day).sort((a,b) => a.at - b.at); return day.replace(/-/g,"") + "-" + String(same.indexOf(o) + 1).padStart(3,"0"); }
+function n0(n) { return Number(n || 0).toLocaleString("ko-KR"); }
+function printSet() {
+  if (!printDate) printDate = ymd(Date.now());
+  const day = db.orders.filter(o => ymd(o.at) === printDate);
+  const picked = day.filter(o => printPick.has(o.id));
+  return (picked.length ? picked : day).slice().sort((a,b) => a.at - b.at);
+}
+function printBar() {
+  if (!printDate) printDate = ymd(Date.now());
+  return `<div class="actions" style="margin:0 0 10px;flex-wrap:wrap;align-items:center">
+    <input type="date" id="printDate" value="${printDate}" style="width:auto;margin:0" />
+    <button class="btn line small" id="printMulti">A4 모아찍기</button>
+    <button class="btn line small" id="printSum">A4 품목별 합계</button></div>
+    <p class="note" style="margin-top:0">체크한 주문이 있으면 그 주문만, 없으면 선택한 날짜 주문 전체를 출력합니다.</p>`;
+}
+function bindPrint() {
+  const pd = document.getElementById("printDate");
+  if (pd) pd.onchange = () => { printDate = pd.value; };
+  document.querySelectorAll("[data-pick]").forEach(c => c.onchange = () => { c.checked ? printPick.add(c.dataset.pick) : printPick.delete(c.dataset.pick); });
+  document.querySelectorAll("[data-rcpt]").forEach(b => b.onclick = () => printReceipt(db.orders.find(o => o.id === b.dataset.rcpt)));
+  const m = document.getElementById("printMulti"); if (m) m.onclick = printMulti;
+  const s = document.getElementById("printSum"); if (s) s.onclick = printSummary;
+}
+function doPrint(html, size) {
+  document.getElementById("printArea").innerHTML = html;
+  let pg = document.getElementById("printPage");
+  if (!pg) { pg = document.createElement("style"); pg.id = "printPage"; document.head.appendChild(pg); }
+  pg.textContent = "@page{size:" + size + ";margin:" + (size === "A4" ? "12mm" : "3mm") + "}";
+  setTimeout(() => window.print(), 50);
+}
+function receiptHtml(o) {
+  const ln = (a, b) => `<div class="ln"><span>${a}</span><span>${b}</span></div>`;
+  const hr = "<div>--------------------------------</div>";
+  return `<div class="rc"><div style="text-align:center"><b style="font-size:20px">미래몰 발주서</b></div>${hr}
+    ${ln("주문번호", orderNo(o))}${ln("일시", ymd(o.at) + " " + hm(o.at))}${ln("거래처", esc(o.name))}${ln("전화", esc(showPhone(o.phone)))}${ln("상태", esc(o.status || ""))}${hr}
+    ${ln("품목 x 수량", "금액")}${o.items.map(i => ln(esc(i.name) + " x " + i.qty, n0(i.price * i.qty))).join("")}${hr}
+    ${ln("공급가", n0(o.supply))}${ln("부가세(10%)", n0(o.vat))}${ln("포인트 사용", "-" + n0(o.used))}
+    <div style="font-size:17px;font-weight:700">${ln("합계", n0(o.total) + "원")}</div>${hr}
+    <div>입금: 국민 000000-00-000000<br>예금주 미래몰</div>
+    <div style="text-align:center;margin-top:8px">□ 출고확인</div>
+    <div style="margin-top:24px;border-top:2px dashed #555;text-align:center;font-size:11px;color:#555">✂ - - - 절취선 - - -</div></div>`;
+}
+function printReceipt(o) { if (o) doPrint(receiptHtml(o), "80mm auto"); }
+function multiHtml(set) {
+  return `<h2 style="margin:0">미래몰 발주서 ${printDate}</h2><div style="font-size:12px;margin-bottom:10px">주문 ${set.length}건 · 모아찍기 · 금액은 공급가액 기준</div>` +
+    set.map(o => `<div class="ob"><div style="display:flex;justify-content:space-between;font-size:13px"><b>${esc(o.name)} (${esc(showPhone(o.phone))})</b><span>주문번호 ${orderNo(o)} · ${hm(o.at)}</span><span><span class="box"></span> 출고확인</span></div>
+      <table style="margin-top:5px"><tr><th>품목</th><th>수량</th><th>단가</th><th>금액</th></tr>${o.items.map(i => `<tr><td>${esc(i.name)}</td><td class="r">${n0(i.qty)}</td><td class="r">${won(i.price)}</td><td class="r">${won(i.price * i.qty)}</td></tr>`).join("")}</table>
+      <div class="r" style="font-size:12px;margin-top:4px">공급가 ${won(o.supply)} · 부가세(10%) ${won(o.vat)} · 포인트 사용 -${pt(o.used)} · <b>합계 ${won(o.total)}</b></div></div>`).join("") +
+    `<div style="font-size:11px;margin-top:10px">입금계좌: 국민 000000-00-000000 예금주 미래몰 · 출고담당 ______ 서명 ______</div>`;
+}
+function printMulti() { const set = printSet(); if (!set.length) return alert("출력할 주문이 없습니다."); doPrint(multiHtml(set), "A4"); }
+function summaryHtml(set) {
+  const map = new Map();
+  set.forEach(o => o.items.forEach(i => {
+    const m = db.menus.find(x => x.name === i.name);
+    const c = m && db.categories.find(x => x.id === m.categoryId);
+    const r = map.get(i.name) || { cat: c ? c.name : "-", corder: c ? c.order : 99, name: i.name, qty: 0, who: new Set(), amt: 0 };
+    r.qty += Number(i.qty) || 0; r.who.add(o.userId); r.amt += (Number(i.price) || 0) * (Number(i.qty) || 0); map.set(i.name, r);
+  }));
+  const rows = [...map.values()].sort((a,b) => a.corder - b.corder || a.name.localeCompare(b.name));
+  return `<h2 style="margin:0">미래몰 품목별 합계 ${printDate}</h2><div style="font-size:12px;margin-bottom:10px">주문 ${set.length}건 합산 · 창고 피킹용</div>
+    <table><tr><th>분류</th><th>품목</th><th>총수량</th><th>거래처 수</th><th>공급가 합계</th><th>챙김</th></tr>${rows.map(r => `<tr style="height:34px"><td>${esc(r.cat)}</td><td><b>${esc(r.name)}</b></td><td class="r" style="font-size:16px"><b>${n0(r.qty)}</b></td><td class="r">${r.who.size}곳</td><td class="r">${won(r.amt)}</td><td style="text-align:center"><span class="box"></span></td></tr>`).join("")}
+    <tr><th colspan="2">합계</th><th class="r">${n0(rows.reduce((a,r) => a + r.qty, 0))}</th><th></th><th class="r">${won(rows.reduce((a,r) => a + r.amt, 0))}</th><th></th></tr></table>
+    <div style="font-size:12px;margin-top:20px">확인자 ______ 시각 ______</div>`;
+}
+function printSummary() { const set = printSet(); if (!set.length) return alert("출력할 주문이 없습니다."); doPrint(summaryHtml(set), "A4"); }
+
+function renderMenuAdmin() {
+  const pending = db.requests.filter(r => r.status === "pending" && r.by === session.id);
+  document.getElementById("body").innerHTML = `
+    <div class="warn">직원이 분류, 메뉴, 사진, 마일리지를 추가하면 사장 승인 후에만 반영됩니다. 사장 본인이 넣으면 바로 반영됩니다.</div>
+    <div class="actions">
+      <button class="btn primary small" id="addCat">분류 행 추가</button>
+      <button class="btn line small" id="addMenu">메뉴 추가</button>
+    </div>
+    <div class="list" style="margin-top:12px">${db.menus.filter(m => m.status === "active").map(m => `
+      <article class="item"><h3>${esc(m.name)} · ${won(m.price)}</h3>
+        <p>${esc((db.categories.find(c => c.id === m.categoryId) || {}).name || "")} · 적립 ${pt(mileOf(m))}</p>
+        <div class="actions"><button class="btn line small" data-photo="${m.id}">사진 변경 요청</button><button class="btn line small" data-mile="${m.id}">마일리지 설정</button></div>
+      </article>`).join("")}</div>
+    ${pending.length ? `<h3 style="margin:16px 0 8px;font-size:14px">내 승인 대기</h3><div class="list">${pending.map(r => `<article class="item"><h3>${esc(reqTitle(r))} <span class="badge">대기</span></h3><p>${esc(reqDesc(r))}</p></article>`).join("")}</div>` : ""}`;
+  document.getElementById("addCat").onclick = askCategory;
+  document.getElementById("addMenu").onclick = askMenu;
+  document.querySelectorAll("[data-photo]").forEach(b => b.onclick = () => askPhoto(b.dataset.photo));
+  document.querySelectorAll("[data-mile]").forEach(b => b.onclick = () => askMileage(b.dataset.mile));
+}
+function reqTitle(r) {
+  if (r.type === "category") return "분류 추가 · " + r.name;
+  if (r.type === "menu") return "메뉴 추가 · " + r.name;
+  if (r.type === "mileage") return "마일리지 · " + ((db.menus.find(m => m.id === r.menuId) || {}).name || "");
+  return "사진 변경 · " + ((db.menus.find(m => m.id === r.menuId) || {}).name || "");
+}
+function reqDesc(r) {
+  if (r.type === "menu") return won(r.price);
+  if (r.type === "mileage") return pt(r.mileage) + " / 개";
+  return when(r.at);
+}
+function askCategory() {
+  openSheet(`<h2>분류 행 추가</h2><label>분류 이름</label><input id="fCat" placeholder="예: 안주" />
+    <button class="btn primary" id="saveCat">추가</button>`);
+  document.getElementById("saveCat").onclick = () => {
+    const name = document.getElementById("fCat").value.trim();
+    if (!name) return;
+    if (session.role === "boss") {
+      db.categories.push({ id: uid("c"), name, status: "active", order: db.categories.length + 1 });
+      bump("분류 '" + name + "'가 추가되었습니다.");
+    } else {
+      db.requests.push({ id: uid("r"), type: "category", name, status: "pending", by: session.id, at: Date.now() });
+      save();
+    }
+    closeSheet(); render();
+  };
+}
+function askMenu() {
+  const opts = activeCats().map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
+  openSheet(`<h2>메뉴 추가</h2><label>이름</label><input id="fName" />
+    <label>가격</label><input id="fPrice" inputmode="numeric" />
+    <label>개당 마일리지</label><input id="fMile" inputmode="numeric" value="0" />
+    <label>분류</label><select id="fCat">${opts}</select>
+    <label>사진</label><input id="fPhoto" type="file" accept="image/*" />
+    <button class="btn primary" id="saveMenu">추가</button>`);
+  document.getElementById("saveMenu").onclick = async () => {
+    const name = document.getElementById("fName").value.trim();
+    const price = Number(document.getElementById("fPrice").value);
+    const mileage = Number(document.getElementById("fMile").value) || 0;
+    const categoryId = document.getElementById("fCat").value;
+    if (!name || !price) return alert("이름과 가격을 입력해 주세요.");
+    const file = document.getElementById("fPhoto").files[0];
+    const photo = file ? await compress(file) : "";
+    if (session.role === "boss") {
+      db.menus.push({ id: uid("m"), categoryId, name, price, mileage, photo, status: "active" });
+      bump("메뉴 '" + name + "'가 반영되었습니다.");
+    } else {
+      db.requests.push({ id: uid("r"), type: "menu", name, price, mileage, categoryId, photo, status: "pending", by: session.id, at: Date.now() });
+      save();
+    }
+    closeSheet(); render();
+  };
+}
+function askMileage(menuId) {
+  const m = db.menus.find(x => x.id === menuId);
+  openSheet(`<h2>마일리지 설정</h2><p class="sub">${esc(m.name)} · 현재 ${pt(mileOf(m))}. 직원이 바꾸면 사장 승인 후 적용됩니다.</p>
+    <label>개당 적립 포인트</label><input id="fMile" inputmode="numeric" value="${mileOf(m)}" />
+    <button class="btn primary" id="saveMile">저장</button>`);
+  document.getElementById("saveMile").onclick = () => {
+    const mileage = Number(document.getElementById("fMile").value);
+    if (mileage < 0 || Number.isNaN(mileage)) return alert("0 이상 숫자를 입력해 주세요.");
+    if (session.role === "boss") {
+      m.mileage = mileage;
+      bump(m.name + " 마일리지가 " + pt(mileage) + "로 반영되었습니다.");
+    } else {
+      db.requests.push({ id: uid("r"), type: "mileage", menuId, mileage, status: "pending", by: session.id, at: Date.now() });
+      save();
+    }
+    closeSheet(); render();
+  };
+}
+function askPhoto(menuId) {
+  openSheet(`<h2>사진 변경</h2><p class="sub">직원이 올리면 사장 승인 후 바뀝니다.</p><input id="fPhoto" type="file" accept="image/*" />
+    <button class="btn primary" id="savePhoto">요청</button>`);
+  document.getElementById("savePhoto").onclick = async () => {
+    const file = document.getElementById("fPhoto").files[0];
+    if (!file) return;
+    const photo = await compress(file);
+    if (session.role === "boss") {
+      const m = db.menus.find(x => x.id === menuId);
+      m.photo = photo;
+      bump(m.name + " 사진이 바뀌었습니다.");
+    } else {
+      db.requests.push({ id: uid("r"), type: "photo", menuId, photo, status: "pending", by: session.id, at: Date.now() });
+      save();
+    }
+    closeSheet(); render();
+  };
+}
+function renderJoins() {
+  const joins = db.users.filter(u => u.role === "customer" && u.status === "pending");
+  document.getElementById("body").innerHTML = `
+    <div class="warn">고객 가입은 사장과 직원 모두 승인할 수 있습니다. 메뉴·분류·사진 반영은 사장만 승인합니다.</div>
+    ${joins.length ? `<div class="list" style="margin-top:12px">${joins.map(u => `<article class="item"><h3>${esc(u.name)}</h3><p>${esc(showPhone(u.phone))}</p>
+      <div class="actions"><button class="btn accent small" data-ok="${u.id}">승인</button><button class="btn line small" data-no="${u.id}">거절</button></div></article>`).join("")}</div>` : `<div class="empty">대기 중인 가입이 없습니다.</div>`}
+    <div class="actions"><button class="btn line small" id="resetPw">고객 비밀번호 초기화</button></div>`;
+  bindJoinActions();
+  document.getElementById("resetPw").onclick = openResetPw;
+}
+function bindJoinActions() {
+  document.querySelectorAll("[data-ok]").forEach(b => b.onclick = () => {
+    db.users.find(u => u.id === b.dataset.ok).status = "active"; save(); render();
+  });
+  document.querySelectorAll("[data-no]").forEach(b => b.onclick = () => {
+    db.users.find(u => u.id === b.dataset.no).status = "rejected"; save(); render();
+  });
+}
+function renderApprove() {
+  const reqs = db.requests.filter(r => r.status === "pending");
+  const joins = db.users.filter(u => u.role === "customer" && u.status === "pending");
+  document.getElementById("body").innerHTML = `
+    <h3 style="margin:4px 0 8px;font-size:15px">가입 승인</h3>
+    <p class="note" style="margin-top:0">직원도 가입은 승인할 수 있습니다.</p>
+    ${joins.length ? `<div class="list">${joins.map(u => `<article class="item"><h3>${esc(u.name)}</h3><p>${esc(showPhone(u.phone))}</p>
+      <div class="actions"><button class="btn accent small" data-ok="${u.id}">승인</button><button class="btn line small" data-no="${u.id}">거절</button></div></article>`).join("")}</div>` : `<div class="empty">대기 중인 가입이 없습니다.</div>`}
+    <h3 style="margin:16px 0 8px;font-size:15px">메뉴 · 분류 · 사진</h3>
+    ${reqs.length ? `<div class="list">${reqs.map(r => `<article class="item"><h3>${esc(reqTitle(r))}</h3><p>${esc(reqDesc(r))}</p>
+      ${r.photo ? `<div class="photo-row"><img src="${r.photo}" alt="" /></div>` : ""}
+      <div class="actions"><button class="btn accent small" data-yes="${r.id}">승인 반영</button><button class="btn line small" data-rej="${r.id}">거절</button></div></article>`).join("")}</div>` : `<div class="empty">대기 중인 수정이 없습니다.</div>`}
+    <div class="actions"><button class="btn line small" id="resetPw">비밀번호 초기화</button></div>`;
+  bindJoinActions();
+  document.querySelectorAll("[data-yes]").forEach(b => b.onclick = () => approve(b.dataset.yes));
+  document.querySelectorAll("[data-rej]").forEach(b => b.onclick = () => {
+    db.requests.find(r => r.id === b.dataset.rej).status = "rejected"; save(); render();
+  });
+  document.getElementById("resetPw").onclick = openResetPw;
+}
+function openResetPw() {
+    const targets = db.users.filter(u => u.id !== session.id && u.status === "active" && (session.role === "boss" || u.role === "customer"));
+    if (!targets.length) return alert("초기화할 회원이 없습니다.");
+    openSheet(`<h2>비밀번호 초기화</h2><label>회원</label><select id="who">${targets.map(u => `<option value="${u.id}">${esc(u.name)} · ${esc(showPhone(u.phone))}</option>`).join("")}</select>
+      <button class="btn primary" id="doReset">임시 비밀번호 만들기</button>
+      <p class="note">기존 비밀번호는 볼 수 없고, 임시 비밀번호(6자리)로만 바꿉니다. 회원이 로그인한 뒤 직접 바꾸게 안내해 주세요.</p>`);
+    document.getElementById("doReset").onclick = async () => {
+      const id = document.getElementById("who").value;
+      if (!cloud.ok) return alert("온라인 저장소에 연결된 상태에서만 초기화할 수 있습니다.");
+      const r = await cloud.sb.rpc("mm_reset_password", { p_token: cloudToken(), p_user: id });
+      if (r.error || !r.data.ok) return alert("초기화할 권한이 없거나 실패했습니다.");
+      const u = db.users.find(x => x.id === id);
+      openSheet(`<h2>임시 비밀번호</h2><p>${esc(u ? u.name : "")}</p><p style="font-size:28px;font-weight:700;letter-spacing:4px">${esc(r.data.temp)}</p>
+        <p class="note">이 화면을 닫으면 다시 볼 수 없습니다. 회원에게 따로 알려 주세요.</p><button class="btn primary" id="tmpOk">확인</button>`);
+      document.getElementById("tmpOk").onclick = closeSheet;
+    };
+}
+function approve(id) {
+  const r = db.requests.find(x => x.id === id);
+  if (r.type === "category") {
+    db.categories.push({ id: uid("c"), name: r.name, status: "active", order: db.categories.length + 1 });
+    bump("분류 '" + r.name + "'가 승인되어 반영되었습니다.");
+  } else if (r.type === "menu") {
+    db.menus.push({ id: uid("m"), categoryId: r.categoryId, name: r.name, price: r.price, mileage: Number(r.mileage) || 0, photo: r.photo || "", status: "active" });
+    bump("메뉴 '" + r.name + "'가 승인되어 반영되었습니다.");
+  } else if (r.type === "mileage") {
+    const m = db.menus.find(x => x.id === r.menuId);
+    if (m) { m.mileage = Number(r.mileage) || 0; bump(m.name + " 마일리지 " + pt(m.mileage) + "가 승인되었습니다."); }
+    else save();
+  } else if (r.type === "photo") {
+    const m = db.menus.find(x => x.id === r.menuId);
+    if (m) { m.photo = r.photo; bump(m.name + " 사진이 승인되어 바뀌었습니다."); }
+    else save();
+  }
+  r.status = "approved";
+  save(); render();
+}
+function bump(text) {
+  db.version += 1;
+  db.changelog.push(text);
+  save();
+}
+function compress(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const scale = Math.min(1, 640 / img.width);
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL("image/jpeg", 0.72));
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  const x = e.clientX || btn.getBoundingClientRect().left + btn.offsetWidth / 2;
+  const y = e.clientY || btn.getBoundingClientRect().top + btn.offsetHeight / 2;
+  for (let i = 0; i < 5; i++) {
+    const heart = document.createElement("span");
+    heart.className = "heart-pop";
+    heart.textContent = "♥";
+    heart.style.left = x + "px";
+    heart.style.top = y + "px";
+    heart.style.color = ["#e25b6a", "#d94a5c", "#f08a96", "#c4374a"][i % 4];
+    heart.style.fontSize = (14 + Math.random() * 10) + "px";
+    heart.style.setProperty("--dx", ((Math.random() - 0.5) * 56) + "px");
+    document.body.appendChild(heart);
+    setTimeout(() => heart.remove(), 760);
+  }
+});
+/* ===== Supabase 설정 (여기만 바꾸면 됨) ===== */
+const SUPABASE_URL = "https://mitufjztltfxhmzgeqtg.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1pdHVmanp0bHRmeGhtemdlcXRnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM3MjQyMTgsImV4cCI6MjEwOTMwMDIxOH0.N24Hx5hiup__-U_jlYCBhkQdcsGl8pGYDt66A2SZn1w";
+/* ============================================ */
+const CLOUD_COLLS = ["users","categories","menus","requests","orders","posts"];
+const CLOUD_KV = ["popup","changelog","version"];
+const cloud = { sb: null, ok: false, snap: {}, timer: null };
+function cloudMsg(t) {
+  let el = document.getElementById("cloudMsg");
+  if (!el) { el = document.createElement("div"); el.id = "cloudMsg";
+    el.style.cssText = "position:fixed;left:8px;right:8px;bottom:8px;z-index:9999;background:#fff3cd;color:#7a5a00;border:1px solid #e6d28a;border-radius:8px;padding:6px 10px;font-size:12px;text-align:center";
+    document.body.appendChild(el); }
+  el.textContent = t; el.style.display = t ? "block" : "none";
+}
+function cloudRows(d) {
+  const rows = {};
+  CLOUD_COLLS.forEach(c => (d[c] || []).forEach((x, i) => { if (x && x.id != null) rows[c + "\u0001" + x.id] = { coll: c, id: String(x.id), pos: i, data: x }; }));
+  Object.entries(d.favorites || {}).forEach(([k, v]) => rows["favorites\u0001" + k] = { coll: "favorites", id: k, pos: 0, data: v });
+  CLOUD_KV.forEach(k => { if (d[k] !== undefined) rows["kv\u0001" + k] = { kv: true, key: k, value: d[k] }; });
+  return rows;
+}
+function cloudSnap(d) { const s = {}; Object.entries(cloudRows(d)).forEach(([k, r]) => s[k] = JSON.stringify(r)); return s; }
+function cloudToken() { return localStorage.getItem("mm-token") || ""; }
+let cloudQueue = Promise.resolve();
+function cloudPush() {
+  if (!cloud.ok || !cloudToken()) return;
+  const rows = cloudRows(db), now = {}, up = [], kv = [], del = [];
+  Object.entries(rows).forEach(([k, r]) => { now[k] = JSON.stringify(r);
+    if (cloud.snap[k] !== now[k]) { if (r.kv) kv.push({ key: r.key, value: r.value }); else up.push({ coll: r.coll, id: r.id, pos: r.pos, data: r.data }); } });
+  Object.keys(cloud.snap).forEach(k => { if (!now[k] && !k.startsWith("kv\u0001")) del.push(k.split("\u0001")); });
+  cloud.snap = now;
+  if (!up.length && !kv.length && !del.length) return;
+  cloudQueue = cloudQueue.then(async () => {
+    const r = await cloud.sb.rpc("mm_save", { p_token: cloudToken(), p_rows: up, p_kv: kv, p_dels: del });
+    if (r.error) throw r.error;
+    cloudMsg(""); cloudRefresh();
+  }).catch(e => { console.warn(e); cloudMsg("온라인 저장에 실패했습니다. (" + (e.message || e) + ")"); });
+}
+async function cloudPull() {
+  if (!cloud.ok || !cloudToken()) return false;
+  const r = await cloud.sb.rpc("mm_fetch", { p_token: cloudToken() });
+  if (r.error) { if (/AUTH/.test(r.error.message || "")) localStorage.removeItem("mm-token"); throw r.error; }
+  const d = r.data; delete d.me;
+  CLOUD_COLLS.forEach(c => d[c] = d[c] || []);
+  d.favorites = d.favorites || {}; d.changelog = d.changelog || []; d.version = d.version || 1;
+  d.popup = d.popup || { title: "미래몰 안내", body: "신규 거래처 첫 발주 마일리지를 확인해 주세요." };
+  localStorage.setItem(KEY, JSON.stringify(d));
+  db = d;
+  cloud.snap = cloudSnap(db);
+  if (session) { const me = db.users.find(u => u.id === session.id); if (me) session = me; }
+  return true;
+}
+function cloudRefresh() {
+  clearTimeout(cloud.timer);
+  cloud.timer = setTimeout(async () => {
+    try { if (!(await cloudPull())) return; } catch (e) { return; }
+    const ae = document.activeElement, typing = ae && /INPUT|SELECT|TEXTAREA/.test(ae.tagName);
+    const sheetOpen = document.getElementById("overlay").classList.contains("on");
+    if (session && document.getElementById("main").classList.contains("on") && !typing && !sheetOpen) render();
+  }, 300);
+}
+async function cloudLogin(p, pw) {
+  const r = await cloud.sb.rpc("mm_login", { p_phone: p, p_pw: pw });
+  if (r.error) throw r.error;
+  if (r.data.token) localStorage.setItem("mm-token", r.data.token);
+  return r.data;
+}
+async function cloudInit() {
+  try {
+    if (!window.supabase || SUPABASE_URL.startsWith("__")) throw new Error("설정 없음");
+    cloud.sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const pub = await cloud.sb.rpc("mm_public");
+    if (pub.error) throw pub.error;
+    cloud.ok = true;
+    if (pub.data && pub.data.popup) { db.popup = pub.data.popup; localStorage.setItem(KEY, JSON.stringify(db)); }
+    cloud.sb.channel("miraemall").on("postgres_changes", { event: "*", schema: "public", table: "mm_ping" }, cloudRefresh).subscribe();
+    setInterval(cloudRefresh, 15000);
+  } catch (e) {
+    cloud.ok = false; console.warn(e);
+    cloudMsg("온라인 저장소에 연결하지 못했습니다. 이 기기에만 저장됩니다.");
+  }
+}
+cloudInit();
+</script>
+<div id="printArea"></div>
+<script>
+(function(){
+  if('serviceWorker' in navigator) window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
+  var h=document.getElementById('pwaHint'); if(!h) return;
+  var standalone=matchMedia('(display-mode: standalone)').matches||navigator.standalone;
+  if(standalone) return;
+  var ios=/iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+  if(ios){h.textContent='📲 앱 설치: 사파리 공유 버튼 → 홈 화면에 추가 누르면 앱 설치 완료';h.hidden=false;}
+  var dp=null;
+  window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();dp=e;h.innerHTML='<button type="button">📲 앱 설치</button>';h.hidden=false;
+    h.firstChild.onclick=function(){dp.prompt();dp.userChoice.finally(function(){dp=null;h.hidden=true;});};});
+  window.addEventListener('appinstalled',function(){h.hidden=true;});
+})();
+</script>
+</body>
+</html>
