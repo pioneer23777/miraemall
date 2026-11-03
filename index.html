@@ -485,6 +485,7 @@ function render() {
   if (tab === "joins") renderJoins();
   if (tab === "cart") renderCart();
   if (tab === "board") renderBoardAdmin();
+  if (tab === "hometax") renderHometax();
   if (cat === "notice" || cat === "event") renderBoard();
 }
 // Q/A 안내 문구: 전화번호 추가 시 여기만 고치면 됩니다.
@@ -528,8 +529,8 @@ function renderTabs() {
   const tabs = session.role === "customer"
     ? [["order", "발주"], ["cart", "장바구니"], ["mine", "내 주문"]]
     : session.role === "staff"
-      ? [["orders", "주문내역"], ["menu", "메뉴관리"], ["joins", "가입승인"], ["board", "글관리"]]
-      : [["orders", "주문내역"], ["menu", "메뉴관리"], ["approve", "승인"], ["board", "글관리"]];
+      ? [["orders", "주문내역"], ["menu", "메뉴관리"], ["joins", "가입승인"], ["board", "글관리"], ["hometax", "현금영수증"]]
+      : [["orders", "주문내역"], ["menu", "메뉴관리"], ["approve", "승인"], ["board", "글관리"], ["hometax", "현금영수증"]];
   document.getElementById("tabs").innerHTML = tabs.map(([id, name]) =>
     `<button class="tab ${tab === id ? "on" : ""}" data-tab="${id}">${name}</button>`
   ).join("");
@@ -547,7 +548,7 @@ function renderOrder() {
       ${photoBlock(m)}
       <div class="meta">
         <div class="name-line">${session.role === "customer" ? `<button class="star ${isFav(m.id) ? "on" : ""}" data-fav="${m.id}">${isFav(m.id) ? "★" : "☆"}</button>` : ""}<b>${esc(m.name)}</b></div>
-        <span>${won(m.price)} · 적립 ${pt(mileOf(m))}</span>
+        <span>${won(m.price)}${mileOf(m) ? " · 적립 " + pt(mileOf(m)) : ""}</span>
         ${session.role === "customer" ? `<div class="pick"><div class="qty"><button data-dec="${m.id}">-</button><span>${pickQty[m.id] || 1}</span><button data-inc="${m.id}">+</button></div><button class="add" data-add="${m.id}" style="width:auto;margin:0">담기</button></div>` : ""}
       </div>
     </article>`).join("")}</div>` : `<div class="empty">${empty}</div>`;
@@ -571,6 +572,7 @@ function renderOrder() {
   });
 }
 function renderCart() {
+  if (evBiz === null) { const me = db.users.find(u => u.id === session.id); evBiz = (me && me.taxInfo && me.taxInfo.bizNo) || ""; }
   const supply = cart.reduce((s, i) => s + i.qty * i.price, 0);
   const vat = Math.round(supply * 0.1);
   const total = supply + vat;
@@ -581,13 +583,18 @@ function renderCart() {
   document.getElementById("body").innerHTML = cart.length ? `<div class="list">${cart.map(i => `
     <article class="item"><div class="row"><b>${esc(i.name)}</b>
       <div class="qty"><button data-cm="${i.id}">-</button><span>${i.qty}</span><button data-cp="${i.id}">+</button></div></div>
-      <p>공급가 ${won(i.price * i.qty)} · 적립 ${pt((Number(i.mileage) || 0) * i.qty)}</p></article>`).join("")}</div>
+      <p>공급가 ${won(i.price * i.qty)}${Number(i.mileage) ? " · 적립 " + pt(Number(i.mileage) * i.qty) : ""}</p></article>`).join("")}</div>
       <label class="check"><input id="usePt" type="checkbox" ${usePoints ? "checked" : ""}/> 포인트 사용 · 보유 ${pt(have)} · 1P = 1원</label>
+      <div class="item" style="margin-top:10px"><b>증빙 선택</b>
+        <div class="row" style="gap:10px;margin-top:6px;justify-content:flex-start">${["none", "cash", "tax"].map(t => `<label><input type="radio" name="ev" value="${t}" ${evType === t ? "checked" : ""}/> ${EV_NAME[t]}</label>`).join("")}</div>
+        ${evType === "cash" ? `<input id="evNo" inputmode="numeric" maxlength="13" placeholder="휴대폰 번호" value="${esc(evNo)}" style="width:100%;margin-top:6px"/>` : ""}
+        ${evType === "tax" ? `<input id="evBiz" inputmode="numeric" maxlength="12" placeholder="사업자번호 10자리" value="${esc(evBiz)}" style="width:100%;margin-top:6px"/>` : ""}
+      </div>
       <div class="totals">
         <div><span>공급가</span><b>${won(supply)}</b></div>
         <div><span>부가세</span><b>${won(vat)}</b></div>
         <div><span>포인트 사용</span><b>-${won(used)}</b></div>
-        <div><span>적립 예정</span><b>${pt(earn)}</b></div>
+        ${earn ? `<div><span>적립 예정</span><b>${pt(earn)}</b></div>` : ""}
         <div class="sum"><span>합계</span><b>${won(pay)}</b></div>
       </div>
       <button class="btn primary" id="place">발주하기</button>`
@@ -604,13 +611,22 @@ function renderCart() {
   });
   const useBox = document.getElementById("usePt");
   if (useBox) useBox.onchange = () => { usePoints = useBox.checked; render(); };
+  document.querySelectorAll("[name=ev]").forEach(r => r.onchange = () => { evType = r.value; render(); });
+  const nBox = document.getElementById("evNo"), bBox = document.getElementById("evBiz");
+  if (nBox) nBox.oninput = () => { evNo = nBox.value; };
+  if (bBox) bBox.oninput = () => { evBiz = bBox.value; };
   const place = document.getElementById("place");
   if (place) place.onclick = () => {
+    let evidence = { type: "none" };
+    if (evType === "cash") { const n = phone(evNo); if (!/^01\d{8,9}$/.test(n)) return alert("현금영수증은 휴대폰 번호를 입력해 주세요."); evidence = { type: "cash", no: n }; }
+    if (evType === "tax") { const b = phone(evBiz); if (b.length !== 10) return alert("세금계산서는 사업자번호 10자리를 입력해 주세요."); evidence = { type: "tax", bizNo: b }; }
     const order = {
       id: uid("o"), userId: session.id, name: session.name, phone: session.phone,
       items: cart.map(i => ({ name: i.name, qty: i.qty, price: i.price, mileage: Number(i.mileage) || 0 })),
-      supply, vat, total: pay, used, earn, status: "입금대기", at: Date.now()
+      supply, vat, total: pay, used, earn, status: "입금대기", at: Date.now(), evidence
     };
+    if (evidence.type === "tax") { const me = db.users.find(u => u.id === session.id); if (me) me.taxInfo = { bizNo: evidence.bizNo }; }
+    evType = "none"; evNo = "";
     db.orders.push(order);
     const me = db.users.find(u => u.id === session.id);
     me.mileage = (Number(me.mileage) || 0) - used + earn;
@@ -626,7 +642,7 @@ function renderCart() {
         <div><span>포인트 사용</span><b>-${won(used)}</b></div>
         <div class="sum"><span>합계</span><b>${won(pay)}</b></div>
       </div>
-      <p class="note">포인트 ${pt(used)} 사용, ${pt(earn)} 적립. 보유 ${pt(session.mileage)}</p>
+      <p class="note">포인트 ${pt(used)} 사용${earn ? ", " + pt(earn) + " 적립" : ""}. 보유 ${pt(session.mileage)}</p>
       <button class="btn primary" id="paid">확인</button>`);
     document.getElementById("paid").onclick = () => { closeSheet(); tab = "mine"; render(); };
   };
@@ -671,7 +687,7 @@ function renderMine() {
   const list = db.orders.filter(o => o.userId === session.id).slice().reverse();
   document.getElementById("body").innerHTML = list.length ? `<div class="list">${list.map(o => `
     <article class="item"><h3>${won(o.total)} <span class="badge ${o.status === "완료" ? "ok" : ""}">${esc(o.status)}</span></h3>
-      <p>${esc(o.items.map(i => i.name + " " + i.qty).join(", "))}</p><p>${when(o.at)} · 적립 ${pt(o.earn)}</p></article>`).join("")}</div>`
+      <p>${esc(o.items.map(i => i.name + " " + i.qty).join(", "))}</p><p>${when(o.at)}${o.earn ? " · 적립 " + pt(o.earn) : ""}</p></article>`).join("")}</div>`
     : `<div class="empty">아직 발주한 내역이 없습니다.</div>`;
 }
 function renderOrders() {
@@ -774,7 +790,7 @@ function renderMenuAdmin() {
     </div>
     <div class="list" style="margin-top:12px">${db.menus.filter(m => m.status === "active").map(m => `
       <article class="item"><h3>${esc(m.name)} · ${won(m.price)}</h3>
-        <p>${esc((db.categories.find(c => c.id === m.categoryId) || {}).name || "")} · 적립 ${pt(mileOf(m))}</p>
+        <p>${esc((db.categories.find(c => c.id === m.categoryId) || {}).name || "")}${mileOf(m) ? " · 적립 " + pt(mileOf(m)) : ""}</p>
         <div class="actions"><button class="btn line small" data-photo="${m.id}">사진 변경 요청</button><button class="btn line small" data-mile="${m.id}">마일리지 설정</button></div>
       </article>`).join("")}</div>
     ${pending.length ? `<h3 style="margin:16px 0 8px;font-size:14px">내 승인 대기</h3><div class="list">${pending.map(r => `<article class="item"><h3>${esc(reqTitle(r))} <span class="badge">대기</span></h3><p>${esc(reqDesc(r))}</p></article>`).join("")}</div>` : ""}`;
@@ -988,6 +1004,56 @@ document.addEventListener("click", (e) => {
     setTimeout(() => heart.remove(), 760);
   }
 });
+
+/* ===== 증빙(현금영수증/세금계산서) 발행 요청·확인 (직원·사장 전용) ===== */
+let evType = "none", evNo = "", evBiz = null;
+const EV_NAME = { cash: "현금영수증", tax: "세금계산서", none: "필요없음" };
+function evText(e) { e = e || {}; return e.type === "cash" ? "현금영수증 " + fmtPhone(e.no) : e.type === "tax" ? "세금계산서 사업자번호 " + String(e.bizNo || "").replace(/^(\d{3})(\d{2})(\d{5})$/, "$1-$2-$3") : "필요없음"; }
+function htWhen(t) { return t ? new Date(t).toLocaleString("ko-KR") : ""; }
+async function htSaveKv(key, value) {
+  if (!cloud.ok || !cloudToken()) throw new Error("온라인 연결 필요");
+  const r = await cloud.sb.rpc("mm_save", { p_token: cloudToken(), p_rows: [], p_kv: [{ key, value }], p_dels: [] });
+  if (r.error) throw r.error;
+  if (r.data && r.data.skipped) throw new Error("서버 권한 설정이 아직 적용되지 않았습니다");
+  db[key] = value; cloud.snap = cloudSnap(db);
+}
+function renderHometax() {
+  const req = db.hometax_request, pend = Array.isArray(db.hometax_pending) ? db.hometax_pending : [];
+  document.getElementById("body").innerHTML = `
+    <article class="item"><h3>현금영수증 발행 요청</h3>
+      <p>${req ? `상태 <b>${esc(req.status)}</b> · ${esc(req.requested_by || "")} · ${htWhen(req.requested_at)}` : "요청 내역 없음"}</p>
+      <button class="btn primary" id="htReq">현금영수증 발행 요청</button><p class="note" id="htMsg"></p></article>
+    <h3 style="margin:14px 2px 6px">발행 확인</h3>
+    <p class="note" style="margin-top:0">봇이 만든 목록입니다. 직원이 맞는지 확인해야 발행됩니다.</p>
+    ${pend.length ? `<div class="list">${pend.map((p, i) => `
+      <article class="item"><h3>${esc(p["거래처"])} <span class="badge ${p.status === "확인됨" ? "ok" : ""}">${esc(p.status || "확인 대기")}</span></h3>
+        <p>주문 ${esc(p.orderId)} · ${esc(evText(p.evidence))}${(db.orders.find(o => o.id === p.orderId) || {}).evidenceIssued ? ' · <span class="badge ok">발행완료</span>' : ""}</p>
+        <p>공급가액 ${won(p["공급가액"])} · 부가세 ${won(p["부가세"])} · 합계 <b>${won(p["합계"])}</b></p>
+        ${p.memo ? `<p>메모: ${esc(p.memo)}</p>` : ""}
+        <div class="row" style="gap:6px"><button class="btn primary" data-htok="${i}">맞음, 발행</button><button class="btn" data-htno="${i}">틀림</button><button class="btn" data-htdone="${i}">발행완료</button></div></article>`).join("")}</div>`
+      : `<div class="empty">확인할 발행 목록이 없습니다.</div>`}`;
+  const msg = t => document.getElementById("htMsg").textContent = t;
+  document.getElementById("htReq").onclick = async () => {
+    try { await htSaveKv("hometax_request", { requested_at: new Date().toISOString(), requested_by: session.name, status: "요청됨" });
+      render(); msg("요청 접수됨"); } catch (e) { msg("요청 실패: " + (e.message || e)); }
+  };
+  const mark = async (i, status, memo) => {
+    const list = pend.map(x => ({ ...x }));
+    list[i] = { ...list[i], status, memo: memo || "", checked_by: session.name, checked_at: new Date().toISOString() };
+    try { await htSaveKv("hometax_pending", list); render(); } catch (e) { alert("저장 실패: " + (e.message || e)); }
+  };
+  document.querySelectorAll("[data-htok]").forEach(b => b.onclick = () => mark(+b.dataset.htok, "확인됨"));
+  document.querySelectorAll("[data-htno]").forEach(b => b.onclick = () => {
+    const memo = prompt("틀린 내용을 적어 주세요"); if (memo === null) return; mark(+b.dataset.htno, "틀림", memo);
+  });
+  document.querySelectorAll("[data-htdone]").forEach(b => b.onclick = () => {
+    const o = db.orders.find(x => x.id === pend[+b.dataset.htdone].orderId);
+    if (!o) return alert("주문을 찾을 수 없습니다.");
+    if (o.evidenceIssued) return alert("이미 발행완료된 주문입니다.");
+    if (!confirm("이 주문을 발행완료로 표시할까요?")) return;
+    o.evidenceIssued = { at: Date.now(), by: session.name }; save(); render();
+  });
+}
 /* ===== Supabase 설정 (여기만 바꾸면 됨) ===== */
 const SUPABASE_URL = "https://mitufjztltfxhmzgeqtg.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1pdHVmanp0bHRmeGhtemdlcXRnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM3MjQyMTgsImV4cCI6MjEwOTMwMDIxOH0.N24Hx5hiup__-U_jlYCBhkQdcsGl8pGYDt66A2SZn1w";
