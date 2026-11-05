@@ -478,6 +478,7 @@ function render() {
   if (tab === "board") renderBoardAdmin();
   if (tab === "hometax") renderHometax();
   if (tab === "stock") renderStock();
+  if (tab === "deposit") renderDeposit();
   if (cat === "notice" || cat === "event") renderBoard();
 }
 // Q/A 안내 문구: 전화번호 추가 시 여기만 고치면 됩니다.
@@ -521,12 +522,12 @@ function renderTabs() {
   const tabs = session.role === "customer"
     ? [["order", "발주"], ["cart", "장바구니"], ["mine", "내 주문"]]
     : session.role === "staff"
-      ? [["orders", "주문내역"], ["menu", "메뉴관리"], ["joins", "가입승인"], ["board", "글관리"], ["hometax", "현금영수증"], ["stock", "재고"]]
-      : [["orders", "주문내역"], ["menu", "메뉴관리"], ["approve", "승인"], ["board", "글관리"], ["hometax", "현금영수증"], ["stock", "재고"]];
+      ? [["orders", "주문내역"], ["menu", "메뉴관리"], ["joins", "가입승인"], ["board", "글관리"], ["hometax", "현금영수증"], ["stock", "재고"], ["deposit", "공병회수"]]
+      : [["orders", "주문내역"], ["menu", "메뉴관리"], ["approve", "승인"], ["board", "글관리"], ["hometax", "현금영수증"], ["stock", "재고"], ["deposit", "공병회수"]];
   document.getElementById("tabs").innerHTML = tabs.map(([id, name]) =>
     `<button class="tab ${tab === id ? "on" : ""}" data-tab="${id}">${name}</button>`
   ).join("");
-  document.querySelectorAll(".tab").forEach(b => b.onclick = () => { tab = b.dataset.tab; if (tab === "stock") { stockData = null; spCache.key = ""; } render(); });
+  document.querySelectorAll(".tab").forEach(b => b.onclick = () => { tab = b.dataset.tab; if (tab === "stock") { stockData = null; spCache.key = ""; } if (tab === "deposit") depData = null; render(); });
 }
 function photoBlock(m) {
   if (m.photo) return `<img src="${m.photo}" alt="" />`;
@@ -563,19 +564,86 @@ function renderOrder() {
     render();
   });
 }
+
+/* ===== 주류 보증금·회수상품 ===== */
+let cartReturn = {}; // menuId -> {bottles, boxes}
+let depData = null;
+function isLiquor(m) {
+  if (!m) return false;
+  const cat = (db.categories.find(c => c.id === m.categoryId) || {}).name;
+  return cat === "주류" || Number(m.bottlesPerBox) > 0 || Number(m.bottleDep) > 0 || Number(m.boxDep) > 0;
+}
+function bppOf(m) { return Math.max(0, parseInt(m && m.bottlesPerBox, 10) || 0); }
+function bottleDepOf(m) { return Math.max(0, Number(m && m.bottleDep) || 0); }
+function boxDepOf(m) { return Math.max(0, Number(m && m.boxDep) || 0); }
+function itemDeposit(m, qty) { return qty * bppOf(m) * bottleDepOf(m) + qty * boxDepOf(m); }
+function cartDepositAmt() {
+  return cart.reduce((s, i) => { const m = db.menus.find(x => x.id === i.id); return s + (isLiquor(m) ? itemDeposit(m, i.qty) : 0); }, 0);
+}
+function myOutstanding() {
+  const list = (depData && depData.balances) || [];
+  return session.role === "customer" ? list.filter(b => !b.userId || b.userId === session.id) : list;
+}
+function outstandingOf(menuId) {
+  const m = db.menus.find(x => x.id === menuId);
+  const b = myOutstanding().find(x => x.menuId === menuId);
+  return b || { bottles: 0, boxes: 0, bottleDep: bottleDepOf(m), boxDep: boxDepOf(m), amount: 0 };
+}
+function returnLines() {
+  return Object.entries(cartReturn).map(([menuId, v]) => {
+    const m = db.menus.find(x => x.id === menuId); if (!m) return null;
+    const bottles = Math.max(0, parseInt(v.bottles, 10) || 0), boxes = Math.max(0, parseInt(v.boxes, 10) || 0);
+    if (!bottles && !boxes) return null;
+    const bottleDep = bottleDepOf(m), boxDep = boxDepOf(m);
+    return { menuId, name: m.name, bottles, boxes, bottleDep, boxDep, amount: bottles * bottleDep + boxes * boxDep };
+  }).filter(Boolean);
+}
+function returnTotalAmt() { return returnLines().reduce((s, r) => s + r.amount, 0); }
+async function loadDeposit() {
+  try {
+    if (!cloud.ok || !cloudToken()) depData = { balances: [], recent: [], offline: true };
+    else {
+      const r = await cloud.sb.rpc("mm_deposit_list", { p_token: cloudToken() });
+      if (r.error) throw r.error;
+      depData = r.data || { balances: [], recent: [] };
+    }
+  } catch (e) { depData = { balances: [], recent: [], error: String(e.message || e) }; }
+  if (tab === "deposit" || tab === "cart") render();
+}
+function orderMoney(o) {
+  const dep = Number(o.deposit) || 0, rt = Number(o.returnTotal) || 0;
+  const orderPrice = o.orderPrice != null ? Number(o.orderPrice) : (Number(o.supply)||0) + (Number(o.vat)||0) - (Number(o.used)||0) + dep;
+  const pay = o.total != null ? Number(o.total) : Math.max(orderPrice - rt, 0);
+  return { dep, rt, orderPrice, pay };
+}
 function renderCart() {
   if (evBiz === null) { const me = db.users.find(u => u.id === session.id); evBiz = (me && me.taxInfo && me.taxInfo.bizNo) || ""; }
+  if (depData === null && cloud.ok) { document.getElementById("body").innerHTML = `<div class="empty">불러오는 중…</div>`; loadDeposit(); return; }
   const supply = cart.reduce((s, i) => s + i.qty * i.price, 0);
   const vat = Math.round(supply * 0.1);
-  const total = supply + vat;
   const earn = cart.reduce((s, i) => s + i.qty * (Number(i.mileage) || 0), 0);
   const have = Number(session.mileage) || 0;
-  const used = usePoints ? Math.min(have, total) : 0;
-  const pay = total - used;
-  document.getElementById("body").innerHTML = cart.length ? `<div class="list">${cart.map(i => `
-    <article class="item"><div class="row"><b>${esc(i.name)}</b>
+  const used = usePoints ? Math.min(have, supply + vat) : 0;
+  const deposit = cartDepositAmt();
+  const rets = returnLines();
+  const retAmt = returnTotalAmt();
+  const orderPrice = supply + vat - used + deposit;
+  const pay = Math.max(orderPrice - retAmt, 0);
+  const outMenus = db.menus.filter(m => m.status === "active" && isLiquor(m) && (outstandingOf(m.id).bottles > 0 || outstandingOf(m.id).boxes > 0 || cartReturn[m.id]));
+  const retHtml = cart.length ? `<article class="item"><h3>회수상품</h3>
+    <p class="note" style="margin-top:0">미회수 잔량 이하로만 입력됩니다. 보증금은 부가세 없이 차감됩니다.${depData && depData.error ? " (잔량 조회 실패 — 서버 SQL 적용 전일 수 있음)" : ""}</p>
+    ${outMenus.length ? outMenus.map(m => { const o = outstandingOf(m.id); const v = cartReturn[m.id] || { bottles: "", boxes: "" };
+      return `<div style="border-bottom:1px solid #eee;padding:6px 0"><b>${esc(m.name)}</b> <small>미회수 공병 ${n0(o.bottles)} · 공박스 ${n0(o.boxes)}</small>
+        <div class="row" style="gap:6px;margin-top:4px"><label style="flex:1">공병<input type="number" min="0" max="${o.bottles}" data-rb="${m.id}" value="${v.bottles}" style="margin:0" /></label>
+        <label style="flex:1">공박스<input type="number" min="0" max="${o.boxes}" data-rx="${m.id}" value="${v.boxes}" style="margin:0" /></label></div>
+        <p style="margin:4px 0 0">공병단가 ${won(bottleDepOf(m))} · 공박스단가 ${won(boxDepOf(m))}</p></div>`; }).join("") : `<p>회수할 미회수 잔량이 없습니다.</p>`}
+    ${rets.length ? `<p>돌려받을 금액 <b>${won(retAmt)}</b></p>` : ""}</article>` : "";
+  document.getElementById("body").innerHTML = cart.length ? `<div class="list">${cart.map(i => {
+    const m = db.menus.find(x => x.id === i.id); const dep = isLiquor(m) ? itemDeposit(m, i.qty) : 0;
+    return `<article class="item"><div class="row"><b>${esc(i.name)}</b>
       <div class="qty"><button data-cm="${i.id}">-</button><span>${i.qty}</span><button data-cp="${i.id}">+</button></div></div>
-      <p>공급가 ${won(i.price * i.qty)}${Number(i.mileage) ? " · 적립 " + pt(Number(i.mileage) * i.qty) : ""}</p></article>`).join("")}</div>
+      <p>${isLiquor(m) ? `박스 ${i.qty} · 공병 ${i.qty * bppOf(m)} · 보증금 ${won(dep)}` : `공급가 ${won(i.price * i.qty)}`}${Number(i.mileage) ? " · 적립 " + pt(Number(i.mileage) * i.qty) : ""}</p></article>`; }).join("")}</div>
+      ${retHtml}
       <label class="check"><input id="usePt" type="checkbox" ${usePoints ? "checked" : ""}/> 포인트 사용 · 보유 ${pt(have)} · 1P = 1원</label>
       <div class="item" style="margin-top:10px"><b>증빙 선택</b>
         <div class="row" style="gap:10px;margin-top:6px;justify-content:flex-start">${["none", "cash", "tax"].map(t => `<label><input type="radio" name="ev" value="${t}" ${evType === t ? "checked" : ""}/> ${EV_NAME[t]}</label>`).join("")}</div>
@@ -586,8 +654,11 @@ function renderCart() {
         <div><span>공급가</span><b>${won(supply)}</b></div>
         <div><span>부가세</span><b>${won(vat)}</b></div>
         <div><span>포인트 사용</span><b>-${won(used)}</b></div>
+        ${deposit ? `<div><span>주류 보증금</span><b>${won(deposit)}</b></div>` : ""}
+        ${retAmt ? `<div><span>회수상품 차감</span><b>-${won(retAmt)}</b></div>` : ""}
         ${earn ? `<div><span>적립 예정</span><b>${pt(earn)}</b></div>` : ""}
-        <div class="sum"><span>합계</span><b>${won(pay)}</b></div>
+        <div><span>주문가격</span><b>${won(orderPrice)}</b></div>
+        <div class="sum"><span>실제결제금액</span><b>${won(pay)}</b></div>
       </div>
       <button class="btn primary" id="place">발주하기</button>`
     : `<div class="empty">장바구니가 비어 있습니다. 발주에서 수량을 정한 뒤 담아 주세요.</div>`;
@@ -607,32 +678,48 @@ function renderCart() {
   const nBox = document.getElementById("evNo"), bBox = document.getElementById("evBiz");
   if (nBox) nBox.oninput = () => { evNo = nBox.value; };
   if (bBox) bBox.oninput = () => { evBiz = bBox.value; };
+  document.querySelectorAll("[data-rb],[data-rx]").forEach(inp => inp.oninput = () => {
+    const id = inp.dataset.rb || inp.dataset.rx; const o = outstandingOf(id);
+    const cur = cartReturn[id] || { bottles: 0, boxes: 0 };
+    if (inp.dataset.rb != null) cur.bottles = Math.min(o.bottles, Math.max(0, parseInt(inp.value, 10) || 0));
+    if (inp.dataset.rx != null) cur.boxes = Math.min(o.boxes, Math.max(0, parseInt(inp.value, 10) || 0));
+    cartReturn[id] = cur; renderCart();
+  });
   const place = document.getElementById("place");
   if (place) place.onclick = () => {
     let evidence = { type: "none" };
     if (evType === "cash") { const n = phone(evNo); if (!/^01\d{8,9}$/.test(n)) return alert("현금영수증은 휴대폰 번호를 입력해 주세요."); evidence = { type: "cash", no: n }; }
     if (evType === "tax") { const b = phone(evBiz); if (b.length !== 10) return alert("세금계산서는 사업자번호 10자리를 입력해 주세요."); evidence = { type: "tax", bizNo: b }; }
+    for (const r of returnLines()) {
+      const o = outstandingOf(r.menuId);
+      if (r.bottles > o.bottles || r.boxes > o.boxes) return alert(r.name + " 회수량이 미회수 잔량을 초과합니다.");
+    }
+    const retsNow = returnLines(), retNow = returnTotalAmt();
     const order = {
       id: uid("o"), userId: session.id, name: session.name, phone: session.phone,
-      items: cart.map(i => ({ menuId: i.id, name: i.name, qty: i.qty, price: i.price, mileage: Number(i.mileage) || 0 })),
-      supply, vat, total: pay, used, earn, status: "입금대기", at: Date.now(), evidence
+      items: cart.map(i => { const m = db.menus.find(x => x.id === i.id); const base = { menuId: i.id, name: i.name, qty: i.qty, price: i.price, mileage: Number(i.mileage) || 0 };
+        if (isLiquor(m)) Object.assign(base, { boxes: i.qty, bottles: i.qty * bppOf(m), bottleDep: bottleDepOf(m), boxDep: boxDepOf(m), deposit: itemDeposit(m, i.qty) }); return base; }),
+      supply, vat, deposit, returns: retsNow, returnTotal: retNow, orderPrice, total: pay, used, earn, status: "입금대기", at: Date.now(), evidence
     };
     if (evidence.type === "tax") { const me = db.users.find(u => u.id === session.id); if (me) me.taxInfo = { bizNo: evidence.bizNo }; }
-    evType = "none"; evNo = "";
+    evType = "none"; evNo = ""; cartReturn = {};
     db.orders.push(order);
     const me = db.users.find(u => u.id === session.id);
     me.mileage = (Number(me.mileage) || 0) - used + earn;
     session.mileage = me.mileage;
     save();
-    cart = [];
+    cart = []; depData = null;
     openSheet(`<h2>입금 계좌</h2>
-      <p class="sub">합계 ${won(pay)}을 아래 계좌로 보내 주세요. 테스트 계좌입니다.</p>
+      <p class="sub">실제결제금액 ${won(pay)}을 아래 계좌로 보내 주세요. 테스트 계좌입니다.</p>
       <div class="acct"><span>국민은행 · 미래몰</span><b>000000-00-000000</b></div>
       <div class="totals">
         <div><span>공급가</span><b>${won(supply)}</b></div>
         <div><span>부가세</span><b>${won(vat)}</b></div>
         <div><span>포인트 사용</span><b>-${won(used)}</b></div>
-        <div class="sum"><span>합계</span><b>${won(pay)}</b></div>
+        ${deposit ? `<div><span>주류 보증금</span><b>${won(deposit)}</b></div>` : ""}
+        ${retNow ? `<div><span>회수상품 차감</span><b>-${won(retNow)}</b></div>` : ""}
+        <div><span>주문가격</span><b>${won(orderPrice)}</b></div>
+        <div class="sum"><span>실제결제금액</span><b>${won(pay)}</b></div>
       </div>
       <p class="note">포인트 ${pt(used)} 사용${earn ? ", " + pt(earn) + " 적립" : ""}. 보유 ${pt(session.mileage)}</p>
       <button class="btn primary" id="paid">확인</button>`);
@@ -677,27 +764,68 @@ function renderBoardAdmin() {
 }
 function renderMine() {
   const list = db.orders.filter(o => o.userId === session.id).slice().reverse();
-  document.getElementById("body").innerHTML = list.length ? `<div class="list">${list.map(o => `
-    <article class="item"><h3>${won(o.total)} <span class="badge ${o.status === "완료" ? "ok" : ""}">${esc(o.status)}</span></h3>
-      <p>${esc(o.items.map(i => i.name + " " + i.qty).join(", "))}</p><p>${when(o.at)}${o.earn ? " · 적립 " + pt(o.earn) : ""}</p></article>`).join("")}</div>`
+  document.getElementById("body").innerHTML = list.length ? `<div class="list">${list.map(o => { const mny = orderMoney(o);
+    const ret = (o.returns || []).map(r => `회수 ${esc(r.name)} 공병${n0(r.bottles)}/박스${n0(r.boxes)}`).join(", ");
+    return `<article class="item"><h3>${won(mny.pay)} <span class="badge ${o.status === "완료" ? "ok" : ""}">${esc(o.status)}</span></h3>
+      <p>${esc(o.items.map(i => i.name + " " + i.qty).join(", "))}</p>
+      <p>${mny.dep ? "주류보증금 " + won(mny.dep) + " · " : ""}${mny.rt ? "회수차감 -" + won(mny.rt) + " · " : ""}주문가격 ${won(mny.orderPrice)} · 실제결제 ${won(mny.pay)}</p>
+      ${ret ? `<p>${ret}</p>` : ""}
+      <p>${when(o.at)}${o.earn ? " · 적립 " + pt(o.earn) : ""}</p></article>`; }).join("")}</div>`
     : `<div class="empty">아직 발주한 내역이 없습니다.</div>`;
 }
 function renderOrders() {
   const list = db.orders.slice().reverse();
   document.getElementById("body").innerHTML = printBar() + `<p class="note" style="margin-top:0">로그인할 때마다 최신 주문을 다시 읽습니다. ${lastSyncNotes[0] ? "최근 반영: " + esc(lastSyncNotes[lastSyncNotes.length-1]) : ""}</p>`
-    + (list.length ? `<div class="list">${list.map(o => `
-      <article class="item"><h3><input type="checkbox" data-pick="${o.id}" ${printPick.has(o.id) ? "checked" : ""} style="width:auto;margin:0 6px 0 0" />${esc(o.name)} · ${won(o.total)} <span class="badge ${o.status === "완료" ? "ok" : ""}">${esc(o.status)}</span></h3>
-        <p>${esc(o.items.map(i => i.name + " " + i.qty).join(", "))}</p><p>${when(o.at)} · ${esc(showPhone(o.phone))}</p>
+    + (list.length ? `<div class="list">${list.map(o => { const mny = orderMoney(o);
+      const ret = (o.returns || []).map(r => `회수 ${esc(r.name)} 공병${n0(r.bottles)}/박스${n0(r.boxes)}`).join(", ");
+      return `<article class="item"><h3><input type="checkbox" data-pick="${o.id}" ${printPick.has(o.id) ? "checked" : ""} style="width:auto;margin:0 6px 0 0" />${esc(o.name)} · ${won(mny.pay)} <span class="badge ${o.status === "완료" ? "ok" : ""}">${esc(o.status)}</span></h3>
+        <p>${esc(o.items.map(i => i.name + " " + i.qty).join(", "))}</p>
+        <p>${mny.dep ? "주류보증금 " + won(mny.dep) + " · " : ""}${mny.rt ? "회수차감 -" + won(mny.rt) + " · " : ""}주문가격 ${won(mny.orderPrice)} · 실제결제 ${won(mny.pay)}</p>
+        ${ret ? `<p>${ret}</p>` : ""}
+        <p>${when(o.at)} · ${esc(showPhone(o.phone))}</p>
         <div class="actions">
           <button class="btn line small" data-st="${o.id}" data-v="접수">접수</button>
           <button class="btn line small" data-st="${o.id}" data-v="완료">완료</button>
+          ${o.status !== "완료" ? `<button class="btn line small" data-retedit="${o.id}">회수수량 수정</button>` : ""}
           <button class="btn line small" data-rcpt="${o.id}">영수증 출력</button>
-        </div></article>`).join("")}</div>` : `<div class="empty">들어온 발주가 없습니다.</div>`);
+        </div></article>`; }).join("")}</div>` : `<div class="empty">들어온 발주가 없습니다.</div>`);
   document.querySelectorAll("[data-st]").forEach(b => b.onclick = () => {
     const o = db.orders.find(x => x.id === b.dataset.st);
-    o.status = b.dataset.v; if (o.status === "완료") o.doneAt = o.doneAt || Date.now(); else delete o.doneAt; save(); render();
+    if (b.dataset.v === "완료" && (o.returns || []).length) {
+      if (!confirm("회수 예정 수량을 확정하고 완료할까요?\n" + (o.returns || []).map(r => r.name + " 공병" + r.bottles + "/박스" + r.boxes).join("\n"))) return;
+    }
+    o.status = b.dataset.v; if (o.status === "완료") o.doneAt = o.doneAt || Date.now(); else delete o.doneAt; save(); depData = null; render();
   });
+  document.querySelectorAll("[data-retedit]").forEach(b => b.onclick = () => editOrderReturns(b.dataset.retedit));
   bindPrint();
+}
+function editOrderReturns(oid) {
+  const o = db.orders.find(x => x.id === oid); if (!o || o.status === "완료") return;
+  const menus = db.menus.filter(m => m.status === "active" && isLiquor(m));
+  const cur = {};
+  (o.returns || []).forEach(r => { cur[r.menuId] = { bottles: r.bottles, boxes: r.boxes }; });
+  openSheet(`<h2>회수수량 수정</h2><p class="sub">${esc(o.name)} · 완료 시 이 수량이 회수 기록으로 확정됩니다.</p>
+    ${menus.map(m => { const v = cur[m.id] || { bottles: 0, boxes: 0 };
+      return `<div style="margin:6px 0"><b>${esc(m.name)}</b>
+        <div class="row" style="gap:6px"><label style="flex:1">공병<input id="erB_${m.id}" type="number" min="0" value="${v.bottles}" style="margin:0" /></label>
+        <label style="flex:1">공박스<input id="erX_${m.id}" type="number" min="0" value="${v.boxes}" style="margin:0" /></label></div></div>`; }).join("")}
+    <button class="btn primary" id="saveER">저장</button>`);
+  document.getElementById("saveER").onclick = () => {
+    const returns = [];
+    menus.forEach(m => {
+      const bottles = Math.max(0, parseInt(document.getElementById("erB_" + m.id).value, 10) || 0);
+      const boxes = Math.max(0, parseInt(document.getElementById("erX_" + m.id).value, 10) || 0);
+      if (!bottles && !boxes) return;
+      const bottleDep = bottleDepOf(m), boxDep = boxDepOf(m);
+      returns.push({ menuId: m.id, name: m.name, bottles, boxes, bottleDep, boxDep, amount: bottles * bottleDep + boxes * boxDep });
+    });
+    o.returns = returns;
+    o.returnTotal = returns.reduce((s, r) => s + r.amount, 0);
+    const dep = Number(o.deposit) || 0;
+    o.orderPrice = (Number(o.supply)||0) + (Number(o.vat)||0) - (Number(o.used)||0) + dep;
+    o.total = Math.max(o.orderPrice - o.returnTotal, 0);
+    save(); closeSheet(); render();
+  };
 }
 /* ===== 출력 (영수증 80mm / A4 모아찍기 / A4 품목별 합계) ===== */
 let printDate = "";
@@ -742,21 +870,45 @@ function doPrint(html, size) {
 function receiptHtml(o) {
   const ln = (a, b) => `<div class="ln"><span>${a}</span><span>${b}</span></div>`;
   const hr = "<div>--------------------------------</div>";
+  const mny = orderMoney(o);
+  const items = (o.items || []).map(i => {
+    if (i.deposit || (i.boxes != null && (i.bottleDep || i.boxDep))) {
+      return ln(esc(i.name) + " " + n0(i.qty) + "박스", "")
+        + `<div style="font-size:11px;color:#333">　공병 ${n0(i.bottles != null ? i.bottles : i.qty * (i.bottlesPerBox || 0))}×${n0(i.bottleDep || 0)} · 공박스 ${n0(i.boxes != null ? i.boxes : i.qty)}×${n0(i.boxDep || 0)}</div>`
+        + ln("　보증금", n0(i.deposit || 0));
+    }
+    return ln(esc(i.name) + " x " + i.qty, n0(i.price * i.qty));
+  }).join("");
+  const rets = (o.returns || []).map(r =>
+    ln("회수 " + esc(r.name), "")
+    + `<div style="font-size:11px">　공병 ${n0(r.bottles)}×${n0(r.bottleDep)} · 공박스 ${n0(r.boxes)}×${n0(r.boxDep)}</div>`
+    + ln("　차감", "-" + n0(r.amount))
+  ).join("");
   return `<div class="rc"><div style="text-align:center"><b style="font-size:20px">미래몰 발주서</b></div>${hr}
     ${ln("주문번호", orderNo(o))}${ln("일시", ymd(o.at) + " " + hm(o.at))}${ln("거래처", esc(o.name))}${ln("전화", esc(showPhone(o.phone)))}${ln("상태", esc(o.status || ""))}${hr}
-    ${ln("품목 x 수량", "금액")}${o.items.map(i => ln(esc(i.name) + " x " + i.qty, n0(i.price * i.qty))).join("")}${hr}
+    ${ln("품목", "금액")}${items}${hr}
+    ${rets ? rets + hr : ""}
     ${ln("공급가", n0(o.supply))}${ln("부가세(10%)", n0(o.vat))}${ln("포인트 사용", "-" + n0(o.used))}
-    <div style="font-size:17px;font-weight:700">${ln("합계", n0(o.total) + "원")}</div>${hr}
+    ${mny.dep ? ln("주류 보증금", n0(mny.dep)) : ""}${mny.rt ? ln("회수상품 차감", "-" + n0(mny.rt)) : ""}
+    ${ln("주문가격", n0(mny.orderPrice) + "원")}
+    <div style="font-size:17px;font-weight:700">${ln("실제결제금액", n0(mny.pay) + "원")}</div>${hr}
     <div>입금: 국민 000000-00-000000<br>예금주 미래몰</div>
     <div style="text-align:center;margin-top:8px">□ 출고확인</div>
     <div style="margin-top:24px;border-top:2px dashed #555;text-align:center;font-size:11px;color:#555">✂ - - - 절취선 - - -</div></div>`;
 }
 function printReceipt(o) { if (o) doPrint(receiptHtml(o), "80mm auto"); }
 function multiHtml(set) {
-  return `<h2 style="margin:0">미래몰 발주서 ${printDate}</h2><div style="font-size:12px;margin-bottom:10px">주문 ${set.length}건 · 모아찍기 · 금액은 공급가액 기준</div>` +
-    set.map(o => `<div class="ob"><div style="display:flex;justify-content:space-between;font-size:13px"><b>${esc(o.name)} (${esc(showPhone(o.phone))})</b><span>주문번호 ${orderNo(o)} · ${hm(o.at)}</span><span><span class="box"></span> 출고확인</span></div>
-      <table style="margin-top:5px"><tr><th>품목</th><th>수량</th><th>단가</th><th>금액</th></tr>${o.items.map(i => `<tr><td>${esc(i.name)}</td><td class="r">${n0(i.qty)}</td><td class="r">${won(i.price)}</td><td class="r">${won(i.price * i.qty)}</td></tr>`).join("")}</table>
-      <div class="r" style="font-size:12px;margin-top:4px">공급가 ${won(o.supply)} · 부가세(10%) ${won(o.vat)} · 포인트 사용 -${pt(o.used)} · <b>합계 ${won(o.total)}</b></div></div>`).join("") +
+  return `<h2 style="margin:0">미래몰 발주서 ${printDate}</h2><div style="font-size:12px;margin-bottom:10px">주문 ${set.length}건 · 모아찍기</div>` +
+    set.map(o => { const mny = orderMoney(o);
+      const rows = (o.items || []).map(i => {
+        if (i.deposit || i.boxes != null) return `<tr><td>${esc(i.name)} (박스)</td><td class="r">${n0(i.qty)}</td><td class="r">보증</td><td class="r">${won(i.deposit || 0)}</td></tr>
+          <tr><td colspan="4" style="font-size:11px">공병 ${n0(i.bottles != null ? i.bottles : 0)}×${won(i.bottleDep || 0)} · 공박스 ${n0(i.boxes != null ? i.boxes : i.qty)}×${won(i.boxDep || 0)}</td></tr>`;
+        return `<tr><td>${esc(i.name)}</td><td class="r">${n0(i.qty)}</td><td class="r">${won(i.price)}</td><td class="r">${won(i.price * i.qty)}</td></tr>`;
+      }).join("");
+      const retRows = (o.returns || []).map(r => `<tr><td>회수 ${esc(r.name)}</td><td class="r">${n0(r.bottles)}병/${n0(r.boxes)}박스</td><td class="r">차감</td><td class="r">-${won(r.amount)}</td></tr>`).join("");
+      return `<div class="ob"><div style="display:flex;justify-content:space-between;font-size:13px"><b>${esc(o.name)} (${esc(showPhone(o.phone))})</b><span>주문번호 ${orderNo(o)} · ${hm(o.at)}</span><span><span class="box"></span> 출고확인</span></div>
+      <table style="margin-top:5px"><tr><th>품목</th><th>수량</th><th>단가</th><th>금액</th></tr>${rows}${retRows}</table>
+      <div class="r" style="font-size:12px;margin-top:4px">공급가 ${won(o.supply)} · 부가세 ${won(o.vat)} · 포인트 -${pt(o.used)}${mny.dep ? " · 주류보증금 " + won(mny.dep) : ""}${mny.rt ? " · 회수차감 -" + won(mny.rt) : ""} · 주문가격 ${won(mny.orderPrice)} · <b>실제결제 ${won(mny.pay)}</b></div></div>`; }).join("") +
     `<div style="font-size:11px;margin-top:10px">입금계좌: 국민 000000-00-000000 예금주 미래몰 · 출고담당 ______ 서명 ______</div>`;
 }
 function printMulti() { const set = printSet(); if (!set.length) return alert("출력할 주문이 없습니다."); doPrint(multiHtml(set), "A4"); }
@@ -813,14 +965,30 @@ function renderMenuAdmin() {
     </div>
     <div class="list" style="margin-top:12px">${db.menus.filter(m => m.status === "active").map(m => `
       <article class="item"><h3>${esc(m.name)} · ${won(m.price)}</h3>
-        <p>${esc((db.categories.find(c => c.id === m.categoryId) || {}).name || "")}${mileOf(m) ? " · 적립 " + pt(mileOf(m)) : ""}</p>
-        <div class="actions"><button class="btn line small" data-photo="${m.id}">사진 변경 요청</button><button class="btn line small" data-mile="${m.id}">마일리지 설정</button></div>
+        <p>${esc((db.categories.find(c => c.id === m.categoryId) || {}).name || "")}${mileOf(m) ? " · 적립 " + pt(mileOf(m)) : ""}${isLiquor(m) ? " · 박스당 " + bppOf(m) + "병 · 공병 " + won(bottleDepOf(m)) + " · 공박스 " + won(boxDepOf(m)) : ""}</p>
+        <div class="actions"><button class="btn line small" data-photo="${m.id}">사진 변경 요청</button><button class="btn line small" data-mile="${m.id}">마일리지 설정</button>${session.role === "boss" && isLiquor(m) ? `<button class="btn line small" data-dep="${m.id}">보증금 설정</button>` : ""}</div>
       </article>`).join("")}</div>
     ${pending.length ? `<h3 style="margin:16px 0 8px;font-size:14px">내 승인 대기</h3><div class="list">${pending.map(r => `<article class="item"><h3>${esc(reqTitle(r))} <span class="badge">대기</span></h3><p>${esc(reqDesc(r))}</p></article>`).join("")}</div>` : ""}`;
   document.getElementById("addCat").onclick = askCategory;
   document.getElementById("addMenu").onclick = askMenu;
   document.querySelectorAll("[data-photo]").forEach(b => b.onclick = () => askPhoto(b.dataset.photo));
   document.querySelectorAll("[data-mile]").forEach(b => b.onclick = () => askMileage(b.dataset.mile));
+  document.querySelectorAll("[data-dep]").forEach(b => b.onclick = () => askDeposit(b.dataset.dep));
+}
+function askDeposit(menuId) {
+  const m = db.menus.find(x => x.id === menuId);
+  openSheet(`<h2>주류 보증금 설정</h2><p class="sub">${esc(m.name)} · 판매가는 0원 유지, 보증금은 부가세 없음</p>
+    <label>박스당 병 수</label><input id="fBpp" type="number" min="0" value="${bppOf(m)}" />
+    <label>공병 개당 보증금(원)</label><input id="fBdep" type="number" min="0" value="${bottleDepOf(m)}" />
+    <label>공박스 보증금(원)</label><input id="fXdep" type="number" min="0" value="${boxDepOf(m)}" />
+    <button class="btn primary" id="saveDep">저장</button>`);
+  document.getElementById("saveDep").onclick = () => {
+    m.bottlesPerBox = Math.max(0, parseInt(document.getElementById("fBpp").value, 10) || 0);
+    m.bottleDep = Math.max(0, Number(document.getElementById("fBdep").value) || 0);
+    m.boxDep = Math.max(0, Number(document.getElementById("fXdep").value) || 0);
+    bump(m.name + " 보증금 설정 저장");
+    closeSheet(); render();
+  };
 }
 function reqTitle(r) {
   if (r.type === "category") return "분류 추가 · " + r.name;
@@ -1172,6 +1340,90 @@ function stockCheck80Html(menus) {
     <div>조사자 ______ 확인 ______</div>
     <div style="margin-top:24px;border-top:2px dashed #555;text-align:center;font-size:11px;color:#555">✂ - - - 절취선 - - -</div></div>`;
 }
+
+function renderDeposit() {
+  if (!depData) { document.getElementById("body").innerHTML = `<div class="empty">불러오는 중…</div>`; loadDeposit(); return; }
+  const bal = depData.balances || [];
+  const byUser = {};
+  bal.forEach(b => {
+    const k = b.userId || "_";
+    if (!byUser[k]) byUser[k] = { userId: b.userId, name: b.name, phone: b.phone, menus: [], bottles: 0, boxes: 0, amount: 0 };
+    byUser[k].menus.push(b);
+    byUser[k].bottles += Number(b.bottles) || 0;
+    byUser[k].boxes += Number(b.boxes) || 0;
+    byUser[k].amount += Number(b.amount) || 0;
+  });
+  const users = Object.values(byUser).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const custOpts = db.users.filter(u => u.role === "customer" && u.status === "active")
+    .map(u => `<option value="${u.id}">${esc(u.name)} (${esc(showPhone(u.phone))})</option>`).join("");
+  const liq = db.menus.filter(m => m.status === "active" && isLiquor(m));
+  document.getElementById("body").innerHTML = `
+    <article class="item"><h3>업소별 미회수</h3>
+      <p class="note" style="margin-top:0">주류 출고(완료) 시 공병·공박스 보증금이 쌓이고, 회수하면 차감됩니다. 부가세 없음.${depData.error ? " · 오류: " + esc(depData.error) : ""}</p>
+      ${users.length ? users.map(u => `<div style="border-bottom:1px solid #eee;padding:8px 0">
+        <b>${esc(u.name)}</b> <small>${esc(showPhone(u.phone))}</small>
+        <p>공병 ${n0(u.bottles)} · 공박스 ${n0(u.boxes)} · 잔액 <b>${won(u.amount)}</b></p>
+        <p style="font-size:12px">${u.menus.map(m => esc(m.menuName) + " 병" + n0(m.bottles) + "/박스" + n0(m.boxes)).join(" · ")}</p>
+        <button class="btn small" data-dret="${u.userId}">회수 기입</button>
+      </div>`).join("") : `<p>미회수 잔량 없음</p>`}</article>
+    <article class="item"><h3>회수 기입</h3>
+      <label>업소</label><select id="dUser">${custOpts}</select>
+      ${liq.map(m => `<div style="margin:6px 0"><b>${esc(m.name)}</b> · 공병 ${won(bottleDepOf(m))} / 공박스 ${won(boxDepOf(m))}
+        <div class="row" style="gap:6px"><input id="db_${m.id}" type="number" min="0" placeholder="공병 수" style="margin:0" /><input id="dx_${m.id}" type="number" min="0" placeholder="공박스 수" style="margin:0" /></div></div>`).join("") || "<p>주류 메뉴 없음</p>"}
+      <input id="dMemo" placeholder="메모" />
+      <button class="btn primary small" id="dSave">회수 저장·영수증</button></article>
+    <article class="item"><h3>최근 회수</h3>${(depData.recent || []).slice(0, 20).map(r =>
+      `<p>${htWhen(r.at)} · ${esc(r.by_name || "")} · ${esc(menuName(r.menu_id))} 공병${n0(r.bottles)}/박스${n0(r.boxes)} · ${won(r.amount)}${r.memo ? " · " + esc(r.memo) : ""}</p>`).join("") || "<p>없음</p>"}</article>`;
+  document.querySelectorAll("[data-dret]").forEach(b => b.onclick = () => { const sel = document.getElementById("dUser"); if (sel) sel.value = b.dataset.dret; });
+  document.getElementById("dSave").onclick = async () => {
+    const uid = document.getElementById("dUser").value;
+    if (!uid) return alert("업소를 선택해 주세요.");
+    const items = [];
+    liq.forEach(m => {
+      const bottles = Math.max(0, parseInt(document.getElementById("db_" + m.id).value, 10) || 0);
+      const boxes = Math.max(0, parseInt(document.getElementById("dx_" + m.id).value, 10) || 0);
+      if (bottles || boxes) items.push({ menuId: m.id, bottles, boxes });
+    });
+    if (!items.length) return alert("회수 수량을 입력해 주세요.");
+    try {
+      if (!cloud.ok || !cloudToken()) throw new Error("온라인 연결 필요");
+      const snap = ((depData && depData.balances) || []).filter(b => b.userId === uid).map(b => Object.assign({}, b));
+      const r = await cloud.sb.rpc("mm_deposit_return", { p_token: cloudToken(), p_user: uid, p_items: items, p_memo: document.getElementById("dMemo").value });
+      if (r.error) throw new Error(r.error.message || r.error);
+      const data = r.data;
+      const left = snap.map(b => {
+        const hit = (data.lines || []).find(l => l.menuId === b.menuId);
+        const bottles = Math.max(0, (Number(b.bottles) || 0) - (hit ? Number(hit.bottles) || 0 : 0));
+        const boxes = Math.max(0, (Number(b.boxes) || 0) - (hit ? Number(hit.boxes) || 0 : 0));
+        return { menuName: b.menuName, bottles, boxes };
+      }).filter(b => b.bottles || b.boxes);
+      depData = null;
+      doPrint(depositReturn80Html(data, left), "80mm auto");
+      render();
+    } catch (e) { alert("회수 저장 실패: " + (e.message || e)); }
+  };
+}
+function depositReturn80Html(data, left) {
+  const ln = (a, b) => `<div class="ln"><span>${a}</span><span>${b}</span></div>`;
+  const hr = "<div>--------------------------------</div>";
+  const u = db.users.find(x => x.id === data.userId) || {};
+  const lines = (data.lines || []).map(r =>
+    ln(esc(r.name), "")
+    + (r.bottles ? ln("　공병 " + n0(r.bottles) + "×" + n0(r.bottleDep), n0(r.bottles * r.bottleDep)) : "")
+    + (r.boxes ? ln("　공박스 " + n0(r.boxes) + "×" + n0(r.boxDep), n0(r.boxes * r.boxDep)) : "")
+  ).join("");
+  const leftHtml = (left || []).length
+    ? left.map(b => ln(esc(b.menuName), "병 " + n0(b.bottles) + " / 박스 " + n0(b.boxes))).join("")
+    : "<div>없음</div>";
+  return `<div class="rc"><div style="text-align:center"><b style="font-size:20px">공병·공박스 회수</b></div>${hr}
+    ${ln("업소", esc(data.userName || u.name || ""))}${ln("일시", ymd(data.at) + " " + hm(data.at))}${ln("기입", esc(data.by || session.name))}${hr}
+    ${lines}${hr}
+    <div style="font-size:17px;font-weight:700">${ln("돌려줄 금액", n0(data.amount) + "원")}</div>${hr}
+    <div><b>남은 미회수</b></div>${leftHtml}${hr}
+    <div style="text-align:center;margin-top:12px">고객 서명 ______</div>
+    <div style="margin-top:24px;border-top:2px dashed #555;text-align:center;font-size:11px;color:#555">✂ - - - 절취선 - - -</div></div>`;
+}
+
 /* ===== 증빙(현금영수증/세금계산서) 발행 요청·확인 (직원·사장 전용) ===== */
 let evType = "none", evNo = "", evBiz = null;
 const EV_NAME = { cash: "현금영수증", tax: "세금계산서", none: "필요없음" };
