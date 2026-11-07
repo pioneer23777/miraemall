@@ -527,7 +527,7 @@ function renderTabs() {
   document.getElementById("tabs").innerHTML = tabs.map(([id, name]) =>
     `<button class="tab ${tab === id ? "on" : ""}" data-tab="${id}">${name}</button>`
   ).join("");
-  document.querySelectorAll(".tab").forEach(b => b.onclick = () => { tab = b.dataset.tab; if (tab === "stock") { stockData = null; spCache.key = ""; } if (tab === "deposit") depData = null; render(); });
+  document.querySelectorAll(".tab").forEach(b => b.onclick = () => { tab = b.dataset.tab; if (tab === "stock") { stockData = null; spCache.key = ""; } if (tab === "deposit") { depData = null; dep2.loaded = false; dep2.report = null; dep2.daily = null; } render(); });
 }
 function photoBlock(m) {
   if (m.photo) return `<img src="${m.photo}" alt="" />`;
@@ -794,7 +794,7 @@ function renderOrders() {
     if (b.dataset.v === "완료" && (o.returns || []).length) {
       if (!confirm("회수 예정 수량을 확정하고 완료할까요?\n" + (o.returns || []).map(r => r.name + " 공병" + r.bottles + "/박스" + r.boxes).join("\n"))) return;
     }
-    o.status = b.dataset.v; if (o.status === "완료") o.doneAt = o.doneAt || Date.now(); else delete o.doneAt; save(); depData = null; render();
+    o.status = b.dataset.v; if (o.status === "완료") o.doneAt = o.doneAt || Date.now(); else delete o.doneAt; save(); depData = null; dep2.loaded = false; dep2.daily = null; render();
   });
   document.querySelectorAll("[data-retedit]").forEach(b => b.onclick = () => editOrderReturns(b.dataset.retedit));
   bindPrint();
@@ -894,6 +894,7 @@ function receiptHtml(o) {
     <div style="font-size:17px;font-weight:700">${ln("실제결제금액", n0(mny.pay) + "원")}</div>${hr}
     <div>입금: 국민 000000-00-000000<br>예금주 미래몰</div>
     <div style="text-align:center;margin-top:8px">□ 출고확인</div>
+    ${rets ? '<div style="margin-top:18px">회수 확인 · 업소 서명 __________________</div>' : ""}
     <div style="margin-top:24px;border-top:2px dashed #555;text-align:center;font-size:11px;color:#555">✂ - - - 절취선 - - -</div></div>`;
 }
 function printReceipt(o) { if (o) doPrint(receiptHtml(o), "80mm auto"); }
@@ -908,7 +909,7 @@ function multiHtml(set) {
       const retRows = (o.returns || []).map(r => `<tr><td>회수 ${esc(r.name)}</td><td class="r">${n0(r.bottles)}병/${n0(r.boxes)}박스</td><td class="r">차감</td><td class="r">-${won(r.amount)}</td></tr>`).join("");
       return `<div class="ob"><div style="display:flex;justify-content:space-between;font-size:13px"><b>${esc(o.name)} (${esc(showPhone(o.phone))})</b><span>주문번호 ${orderNo(o)} · ${hm(o.at)}</span><span><span class="box"></span> 출고확인</span></div>
       <table style="margin-top:5px"><tr><th>품목</th><th>수량</th><th>단가</th><th>금액</th></tr>${rows}${retRows}</table>
-      <div class="r" style="font-size:12px;margin-top:4px">공급가 ${won(o.supply)} · 부가세 ${won(o.vat)} · 포인트 -${pt(o.used)}${mny.dep ? " · 주류보증금 " + won(mny.dep) : ""}${mny.rt ? " · 회수차감 -" + won(mny.rt) : ""} · 주문가격 ${won(mny.orderPrice)} · <b>실제결제 ${won(mny.pay)}</b></div></div>`; }).join("") +
+      <div class="r" style="font-size:12px;margin-top:4px">공급가 ${won(o.supply)} · 부가세 ${won(o.vat)} · 포인트 -${pt(o.used)}${mny.dep ? " · 주류보증금 " + won(mny.dep) : ""}${mny.rt ? " · 회수차감 -" + won(mny.rt) : ""} · 주문가격 ${won(mny.orderPrice)} · <b>실제결제 ${won(mny.pay)}</b></div>${retRows ? '<div style="font-size:12px;margin-top:10px">회수 확인 · 업소 서명 __________________</div>' : ""}</div>`; }).join("") +
     `<div style="font-size:11px;margin-top:10px">입금계좌: 국민 000000-00-000000 예금주 미래몰 · 출고담당 ______ 서명 ______</div>`;
 }
 function printMulti() { const set = printSet(); if (!set.length) return alert("출력할 주문이 없습니다."); doPrint(multiHtml(set), "A4"); }
@@ -1342,6 +1343,7 @@ function stockCheck80Html(menus) {
 }
 
 function renderDeposit() {
+  if (!session || !["boss", "staff"].includes(session.role)) return;
   if (!depData) { document.getElementById("body").innerHTML = `<div class="empty">불러오는 중…</div>`; loadDeposit(); return; }
   const bal = depData.balances || [];
   const byUser = {};
@@ -1359,7 +1361,7 @@ function renderDeposit() {
   const liq = db.menus.filter(m => m.status === "active" && isLiquor(m));
   document.getElementById("body").innerHTML = `
     <article class="item"><h3>업소별 미회수</h3>
-      <p class="note" style="margin-top:0">주류 출고(완료) 시 공병·공박스 보증금이 쌓이고, 회수하면 차감됩니다. 부가세 없음.${depData.error ? " · 오류: " + esc(depData.error) : ""}</p>
+      <p class="note" style="margin-top:0">주류 출고(완료) 시 보증금이 쌓이고 실제 회수하면 차감됩니다. 일반 보증금과 변상금은 별도로 처리합니다.${depData.error ? " · 오류: " + esc(depData.error) : ""}</p>
       ${users.length ? users.map(u => `<div style="border-bottom:1px solid #eee;padding:8px 0">
         <b>${esc(u.name)}</b> <small>${esc(showPhone(u.phone))}</small>
         <p>공병 ${n0(u.bottles)} · 공박스 ${n0(u.boxes)} · 잔액 <b>${won(u.amount)}</b></p>
@@ -1374,6 +1376,8 @@ function renderDeposit() {
       <button class="btn primary small" id="dSave">회수 저장·영수증</button></article>
     <article class="item"><h3>최근 회수</h3>${(depData.recent || []).slice(0, 20).map(r =>
       `<p>${htWhen(r.at)} · ${esc(r.by_name || "")} · ${esc(menuName(r.menu_id))} 공병${n0(r.bottles)}/박스${n0(r.boxes)} · ${won(r.amount)}${r.memo ? " · " + esc(r.memo) : ""}</p>`).join("") || "<p>없음</p>"}</article>`;
+  document.getElementById("body").insertAdjacentHTML("beforeend", dep2Html());
+  dep2Bind();
   document.querySelectorAll("[data-dret]").forEach(b => b.onclick = () => { const sel = document.getElementById("dUser"); if (sel) sel.value = b.dataset.dret; });
   document.getElementById("dSave").onclick = async () => {
     const uid = document.getElementById("dUser").value;
@@ -1385,6 +1389,9 @@ function renderDeposit() {
       if (bottles || boxes) items.push({ menuId: m.id, bottles, boxes });
     });
     if (!items.length) return alert("회수 수량을 입력해 주세요.");
+    const saveBtn = document.getElementById("dSave");
+    if (saveBtn.disabled) return;
+    saveBtn.disabled = true;
     try {
       if (!cloud.ok || !cloudToken()) throw new Error("온라인 연결 필요");
       const snap = ((depData && depData.balances) || []).filter(b => b.userId === uid).map(b => Object.assign({}, b));
@@ -1397,12 +1404,203 @@ function renderDeposit() {
         const boxes = Math.max(0, (Number(b.boxes) || 0) - (hit ? Number(hit.boxes) || 0 : 0));
         return { menuName: b.menuName, bottles, boxes };
       }).filter(b => b.bottles || b.boxes);
-      depData = null;
+      depData = null; dep2.loaded = false; dep2.daily = null;
       doPrint(depositReturn80Html(data, left), "80mm auto");
       render();
     } catch (e) { alert("회수 저장 실패: " + (e.message || e)); }
+    finally { if (saveBtn.isConnected) saveBtn.disabled = false; }
   };
 }
+/* ===== 공병 수불·장기 미회수·변상·일별회수 (deposit2.sql 미적용 서버 호환) ===== */
+const dep2 = { from: '', to: '', user: '', mode: 'month', monthFrom: '', monthTo: '', day: '', report: null, daily: null, loaded: false, busy: false, missing: false, error: '', saving: false };
+function depKstDay(t) { return new Date(new Date(t).getTime() + 9*3600000).toISOString().slice(0,10); }
+function depKstTime(t) { return new Date(new Date(t).getTime() + 9*3600000).toISOString().slice(0,16).replace('T',' ') + ' KST'; }
+function dep2Init() {
+  const today = depKstDay(Date.now());
+  if (!dep2.from) { dep2.from=today.slice(0,7)+'-01'; dep2.to=today; dep2.monthFrom=dep2.monthTo=today.slice(0,7); dep2.day=today; }
+}
+function dep2Missing(e) { return e && (e.code==='PGRST202' || e.code==='42883' || /Could not find the function|does not exist/.test(e.message||'')); }
+async function dep2Rpc(name, args) {
+  if (!session || !['boss','staff'].includes(session.role)) throw new Error('사장·직원만 사용할 수 있습니다.');
+  if (!cloud.ok || !cloudToken()) throw new Error('온라인 연결 필요');
+  const r=await cloud.sb.rpc(name, Object.assign({p_token:cloudToken()},args));
+  if (r.error) throw r.error;
+  return r.data;
+}
+function dep2Error(e) {
+  const text=e.message||String(e);
+  if (/RETURN_OVER/.test(text)) return '미회수 잔량보다 많습니다. 새로 조회하고 수량을 확인해 주세요.';
+  if (/FORBIDDEN/.test(text)) return '권한이 없습니다. 변상 정산과 기준 변경은 사장만 가능합니다.';
+  if (/AUTH/.test(text)) return '로그인을 다시 해 주세요.';
+  return text;
+}
+async function dep2Load() {
+  if (dep2.busy) return;
+  dep2.busy=true; dep2.error='';
+  try { dep2.report=await dep2Rpc('mm_deposit_report',{p_from:dep2.from,p_to:dep2.to,p_user:dep2.user||null}); dep2.missing=false; }
+  catch(e) { dep2.report=null; dep2.missing=dep2Missing(e); if (!dep2.missing) dep2.error=dep2Error(e); }
+  finally { dep2.loaded=true; dep2.busy=false; if (tab==='deposit') renderDeposit(); }
+}
+function dep2Customers() {
+  return db.users.filter(u=>u.role==='customer').slice().sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+}
+function dep2Options(selected, all) {
+  return (all?'<option value="">전체 업소</option>':'')+dep2Customers().map(u=>`<option value="${esc(u.id)}" ${selected===u.id?'selected':''}>${esc(u.name)}</option>`).join('');
+}
+function dep2Html() {
+  dep2Init();
+  const r=dep2.report, unavailable=dep2.missing, disabled=(!r||dep2.busy)?'disabled':'';
+  return `<article class="item"><h3>공병수불대장 · 기간 조회</h3>
+    <p class="note">병/박스 별 수량 · 잔량은 기간 전 기초잔량부터 계산합니다. 날짜·일시는 한국시간(KST)입니다.</p>
+    ${unavailable?'<p style="color:#b45309">서버 확장 설정 적용 대기 중입니다. 기존 회수 기입·영수증 기능은 그대로 사용할 수 있습니다.</p>':''}
+    ${dep2.error?`<p style="color:#b91c1c">${esc(dep2.error)}</p>`:''}
+    <label>업소</label><select id="d2User">${dep2Options(dep2.user,true)}</select>
+    <label>기간 입력</label><select id="d2Mode"><option value="month" ${dep2.mode==='month'?'selected':''}>월별 범위</option><option value="date" ${dep2.mode==='date'?'selected':''}>날짜 직접 입력</option></select>
+    <div class="row" style="gap:6px">${dep2.mode==='month'?`<input type="month" id="d2From" value="${dep2.monthFrom}"><span>~</span><input type="month" id="d2To" value="${dep2.monthTo}">`:`<input type="date" id="d2From" value="${dep2.from}"><span>~</span><input type="date" id="d2To" value="${dep2.to}">`}</div>
+    <div class="actions" style="flex-wrap:wrap"><button class="btn primary small" id="d2Query" ${dep2.busy?'disabled':''}>${dep2.busy?'조회 중…':'기간 조회'}</button><button class="btn small" id="d2P80" ${disabled}>80mm 수불대장</button><button class="btn small" id="d2PA4" ${disabled}>A4 수불대장</button></div>
+    ${r?`<p><b>조회 결과: ${esc(r.from)} ~ ${esc(r.to)}</b></p>${dep2LedgerHtml(r,false)}`:'<p>기간 조회 후 내역이 표시됩니다.</p>'}
+    </article>
+    <article class="item"><h3>장기 미회수 업소</h3><p class="note">마지막 회수일(없으면 첫 미회수 출고일)부터 기준일수를 <b>초과</b>하면 표시합니다. 현재 잔량 기준이며 기간 필터와 무관합니다.</p>
+      ${session.role==='boss'?`<div class="row" style="gap:6px"><label>기준 일수<input id="d2Days" type="number" min="1" max="36500" value="${r?r.overdueDays:60}" ${disabled}></label><button class="btn small" id="d2DaysSave" ${disabled}>기준 저장</button></div>`:`<p>기준: ${r?r.overdueDays:60}일 초과</p>`}
+      ${r?(r.accounts||[]).map(a=>`<div style="padding:8px 0;border-bottom:1px solid #eee;${a.overdue?'color:#b91c1c':''}"><b>${a.overdue?'⚠ 장기 미회수 · ':''}${esc(a.name)}</b><p>병 ${n0(a.bottles)} / 박스 ${n0(a.boxes)} · ${won(a.amount)}</p><p>마지막 회수: ${a.last_return?depKstDay(a.last_return):'없음'} · 기준일 ${a.anchor?depKstDay(a.anchor):'-'} (${n0(a.ageDays)}일)</p></div>`).join('')||'<p>미회수 잔량 없음</p>':'<p>서버 조회 후 표시됩니다.</p>'}
+    </article>
+    ${session.role==='boss'?`<article class="item"><h3>변상 정산 (사장 전용)</h3><p class="note">실제 회수가 아닙니다. 미회수 잔량을 변상 처리하며, 일반 보증금과 따로 기록합니다. <b>부가세 대상 가능, 세금계산서 대상</b> · 세무사 확인 필요. 부가세 자동계산·발행은 하지 않습니다.</p>
+      <button class="btn small" id="d2Settle" ${disabled}>업소 선택 · 일부/전체 변상 정산</button></article>`:''}
+    <article class="item"><h3>변상 정산 기록</h3>${r?(r.settlements||[]).map((s,i)=>`<p>${depKstTime(s.at)} · ${esc(s.userName)} · ${won(s.amount)} · ${esc(s.by)}<br>${esc(s.memo)}<br><small>부가세 대상 가능, 세금계산서 대상</small> <button class="btn small" data-d2-setprint="${i}">80mm 정산서 재출력</button></p>`).join('')||'<p>선택 기간 내 기록 없음</p>':'<p>기간 조회 후 표시됩니다.</p>'}</article>
+    <article class="item"><h3>일별 회수 내역 내보내기</h3><p class="note">실제로 회수한 내역만 업소별·품목별로 합산합니다. 변상 정산은 제외합니다. 센터 자동 전송이 아닌 내부 확인용 CSV입니다.</p>
+      <input id="d2Day" type="date" value="${dep2.day}"><div class="actions" style="flex-wrap:wrap"><button class="btn small" id="d2Daily" ${unavailable?'disabled':''}>일별 조회</button><button class="btn small" id="d2Csv" ${dep2.daily?'':'disabled'}>CSV 내려받기</button><button class="btn small" id="d2DailyPrint" ${dep2.daily?'':'disabled'}>A4 출력</button><button class="btn small" id="d2Daily80" ${dep2.daily?'':'disabled'}>80mm 출력</button></div>
+      ${dep2.daily?dep2DailyHtml(dep2.daily):''}</article>`;
+}
+function dep2LedgerRows(r) {
+  const balances=new Map(), days=new Map(), out=[];
+  const key=(z)=>JSON.stringify([z.user_id,z.menu_id]);
+  const ensure=z=>{const k=key(z); if(!balances.has(k)) balances.set(k,{user_id:z.user_id,menu_id:z.menu_id,user_name:z.user_name,menu_name:z.menu_name,bottles:0,boxes:0,amount:0}); return balances.get(k);};
+  (r.opening||[]).forEach(z=>{const b=ensure(z); b.bottles+=Number(z.bottles); b.boxes+=Number(z.boxes); b.amount+=Number(z.amount);});
+  balances.forEach(b=>out.push(Object.assign({day:r.from,kind:'opening',ob:0,ox:0,ib:0,ix:0,sb:0,sx:0},b)));
+  (r.entries||[]).forEach(z=>{
+    const k=JSON.stringify([z.day,z.user_id,z.menu_id]);
+    if(!days.has(k)) days.set(k,{day:z.day,user_id:z.user_id,menu_id:z.menu_id,user_name:z.user_name,menu_name:z.menu_name,kind:'daily',ob:0,ox:0,ib:0,ix:0,sb:0,sx:0,delta:0});
+    const d=days.get(k), prefix=z.kind==='out'?'o':z.kind==='in'?'i':'s';
+    d[prefix+'b']+=Number(z.bottles); d[prefix+'x']+=Number(z.boxes); d.delta+=(z.kind==='out'?1:-1)*Number(z.amount);
+  });
+  Array.from(days.values()).sort((a,b)=>a.day.localeCompare(b.day)||a.user_name.localeCompare(b.user_name)||a.menu_name.localeCompare(b.menu_name)).forEach(d=>{
+    const b=ensure(d); b.bottles+=d.ob-d.ib-d.sb; b.boxes+=d.ox-d.ix-d.sx; b.amount+=d.delta;
+    out.push(Object.assign({},d,{bottles:b.bottles,boxes:b.boxes,amount:b.amount}));
+  });
+  balances.forEach(b=>out.push(Object.assign({day:r.to,kind:'closing',ob:0,ox:0,ib:0,ix:0,sb:0,sx:0},b)));
+  return out;
+}
+function dep2LedgerHtml(r, receipt) {
+  const rows=dep2LedgerRows(r);
+  if(!rows.length) return '<p>해당 기간 내 기록·기초잔량 없음</p>';
+  const label=z=>z.kind==='opening'?'기초':z.kind==='closing'?'기말':z.day;
+  if(receipt) return rows.map(z=>`<div style="border-top:1px dashed #777;padding:6px 0;break-inside:avoid"><b>${esc(z.user_name)} / ${esc(z.menu_name)}</b><div>${label(z)}${z.kind==='daily'?` · 출고 ${n0(z.ob)}/${n0(z.ox)}<br>회수 ${n0(z.ib)}/${n0(z.ix)} · 변상 ${n0(z.sb)}/${n0(z.sx)}`:''}</div><div>잔량 ${n0(z.bottles)}/${n0(z.boxes)}<br>보증금 잔액 ${won(z.amount)}</div></div>`).join('');
+  return `<div style="overflow-x:auto"><table style="width:100%;min-width:640px;border-collapse:collapse;font-size:12px"><thead><tr>${['날짜','업소','품목','출고 병/박스','회수 병/박스','변상 병/박스','잔량 병/박스','보증금 잔액'].map(x=>`<th>${x}</th>`).join('')}</tr></thead><tbody>${rows.map(z=>`<tr>${[label(z),esc(z.user_name),esc(z.menu_name),n0(z.ob)+'/'+n0(z.ox),n0(z.ib)+'/'+n0(z.ix),n0(z.sb)+'/'+n0(z.sx),n0(z.bottles)+'/'+n0(z.boxes),won(z.amount)].map(x=>`<td style="padding:5px;border-bottom:1px solid #ddd">${x}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
+function dep2PrintLedger(receipt) {
+  const r=dep2.report; if(!r) return;
+  doPrint(`<div class="${receipt?'rc':''}"><h3>공병·공박스 수불대장</h3><p>${esc(r.from)} ~ ${esc(r.to)} (KST)<br>수량 단위: 병 / 박스</p>${dep2LedgerHtml(r,receipt)}<p style="font-size:11px">보증금 잔액은 기록 당시 금액의 누계입니다. 변상금은 별도 정산서 참조.</p></div>`,receipt?'80mm auto':'A4');
+}
+function dep2DailyRows(r) {
+  const map=new Map();
+  (r.entries||[]).filter(z=>z.kind==='in').forEach(z=>{
+    const key=JSON.stringify([z.user_id,z.menu_id]);
+    if(!map.has(key)) map.set(key,{day:z.day,userId:z.user_id,userName:z.user_name,menuId:z.menu_id,menuName:z.menu_name,bottles:0,boxes:0,amount:0});
+    const a=map.get(key); a.bottles+=Number(z.bottles); a.boxes+=Number(z.boxes); a.amount+=Number(z.amount);
+  });
+  return Array.from(map.values()).sort((a,b)=>a.userName.localeCompare(b.userName)||a.menuName.localeCompare(b.menuName));
+}
+function dep2DailyHtml(r,receipt) {
+  const rows=dep2DailyRows(r);
+  const title=`<h3>일별 회수 내역</h3><p>${esc(r.from)} (KST) · 내부 확인용</p>`;
+  if(!rows.length) return title+'<p>회수 내역 없음</p>';
+  const total=rows.reduce((a,z)=>({bottles:a.bottles+z.bottles,boxes:a.boxes+z.boxes,amount:a.amount+z.amount}),{bottles:0,boxes:0,amount:0});
+  const body=receipt?rows.map(z=>`<p><b>${esc(z.userName)} / ${esc(z.menuName)}</b><br>병 ${n0(z.bottles)} · 박스 ${n0(z.boxes)}<br>${won(z.amount)}</p>`).join(''):`<table style="width:100%;font-size:12px"><thead><tr><th>업소</th><th>품목</th><th>회수 병</th><th>회수 박스</th><th>반환액</th></tr></thead><tbody>${rows.map(z=>`<tr><td>${esc(z.userName)}</td><td>${esc(z.menuName)}</td><td>${n0(z.bottles)}</td><td>${n0(z.boxes)}</td><td>${won(z.amount)}</td></tr>`).join('')}</tbody></table>`;
+  return title+body+`<p><b>합계: 병 ${n0(total.bottles)} / 박스 ${n0(total.boxes)} · ${won(total.amount)}</b></p>`;
+}
+function dep2CsvText(r) {
+  const safe=v=>{let s=String(v==null?'':v); if(typeof v==='string' && /^[\s]*[=+\-@\t\r]/.test(s)) s="'"+s; return '"'+s.replace(/"/g,'""')+'"';};
+  const rows=[['회수일(KST)','업소ID','업소명','품목ID','품목명','회수병수','회수박스수','반환금액(원)'],...dep2DailyRows(r).map(z=>[z.day,z.userId,z.userName,z.menuId,z.menuName,z.bottles,z.boxes,z.amount])];
+  return '\uFEFF'+rows.map(row=>row.map(safe).join(',')).join('\r\n')+'\r\n';
+}
+function dep2Download() {
+  if(!dep2.daily) return;
+  const blob=new Blob([dep2CsvText(dep2.daily)],{type:'text/csv;charset=utf-8;'}), url=URL.createObjectURL(blob), a=document.createElement('a');
+  a.href=url; a.download='미래몰_회수내역_'+dep2.daily.from+'.csv'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+function dep2Settlement80(s) {
+  return `<div class="rc"><h3 style="text-align:center">공병·공박스 변상 정산서</h3><div>업소: ${esc(s.userName)}<br>처리일시: ${depKstTime(s.at)}<br>처리자: ${esc(s.by)}<br>정산번호: ${esc(s.id)}</div><hr>${(s.lines||[]).map(z=>`<p><b>${esc(z.name)}</b><br>변상 공병 ${n0(z.bottles)} / 공박스 ${n0(z.boxes)}</p>`).join('')}<hr><b>변상 정산금액: ${won(s.amount)}</b><p>사유: ${esc(s.memo)}</p><p>부가세 대상 가능, 세금계산서 대상<br>세무사 확인 필요<br>부가세 자동계산·발행 안 함</p><p>실제 회수가 아닌 변상 처리이며<br>해당 수량은 미회수 잔량에서 제외됩니다.</p><div style="margin:22px 0">업소 확인·서명 __________________</div><div style="margin:16px 0">담당자 서명 ____________________</div></div>`;
+}
+function dep2AskSettlement() {
+  if(session.role!=='boss'||!dep2.report) return;
+  let uid=dep2.user || ((dep2.report.accounts||[])[0]||{}).user_id || ((dep2Customers()[0])||{}).id || '';
+  const request=crypto.randomUUID();
+  const show=()=>{
+    const bal=((depData||{}).balances||[]).filter(z=>z.userId===uid && (z.bottles>0||z.boxes>0));
+    openSheet(`<h2>변상 정산 · 사장 전용</h2><p>부가세 대상 가능, 세금계산서 대상 · 세무사 확인 필요</p><label>업소</label><select id="dsUser">${dep2Options(uid,false)}</select>
+      ${bal.map((z,i)=>`<label>${esc(z.menuName)} · 미회수 병 ${n0(z.bottles)} / 박스 ${n0(z.boxes)}</label><div class="row" style="gap:6px"><input id="dsB${i}" type="number" min="0" max="${z.bottles}" step="1" placeholder="변상 병 수"><input id="dsX${i}" type="number" min="0" max="${z.boxes}" step="1" placeholder="변상 박스 수"></div>`).join('')||'<p>미회수 잔량 없음</p>'}
+      <button class="btn small" id="dsAll">미회수 수량 전체 선택</button><label>변상금액 (원, 부가세 자동계산 없음)</label><input id="dsAmt" type="number" min="0" step="0.01" placeholder="합의한 변상금액 직접 입력"><label>정산 사유 (필수)</label><input id="dsMemo" maxlength="500" placeholder="예: 분실로 업소와 변상 합의"><button class="btn primary" id="dsSave" ${bal.length?'':'disabled'}>확인 후 정산 저장·80mm 정산서</button>`);
+    document.getElementById('dsUser').onchange=e=>{uid=e.target.value; show();};
+    document.getElementById('dsAll').onclick=()=>bal.forEach((z,i)=>{document.getElementById('dsB'+i).value=z.bottles;document.getElementById('dsX'+i).value=z.boxes;});
+    document.getElementById('dsSave').onclick=async()=>{
+      if(dep2.saving) return;
+      const items=[];
+      for(let i=0;i<bal.length;i++) {
+        const b=Number(document.getElementById('dsB'+i).value||0), x=Number(document.getElementById('dsX'+i).value||0);
+        if(!Number.isInteger(b)||!Number.isInteger(x)||b<0||x<0||b>Number(bal[i].bottles)||x>Number(bal[i].boxes)) return alert('미회수 잔량 이내의 정수 수량을 입력해 주세요.');
+        if(b||x) items.push({menuId:bal[i].menuId,bottles:b,boxes:x});
+      }
+      const field=document.getElementById('dsAmt'), amount=Number(field.value), memo=document.getElementById('dsMemo').value.trim();
+      if(!items.length) return alert('변상 수량을 입력해 주세요.');
+      if(field.value===''||!Number.isFinite(amount)||amount<0||Math.abs(Math.round(amount*100)-amount*100)>0.00001) return alert('변상금액을 정확히 입력해 주세요.');
+      if(!memo) return alert('사유를 입력해 주세요.');
+      const u=db.users.find(z=>z.id===uid)||{};
+      if(!confirm(`${u.name||uid}\n${items.map(z=>menuName(z.menuId)+' 병 '+z.bottles+' / 박스 '+z.boxes).join('\n')}\n변상금액 ${won(amount)}\n이 수량은 회수가 아닌 변상으로 잔량에서 빠집니다. 확정할까요?`)) return;
+      dep2.saving=true; const btn=document.getElementById('dsSave'); btn.disabled=true;
+      try {
+        const s=await dep2Rpc('mm_deposit_settle',{p_user:uid,p_items:items,p_amount:amount,p_memo:memo,p_request:request});
+        closeSheet(); dep2.loaded=false; dep2.daily=null; depData=null; doPrint(dep2Settlement80(s),'80mm auto'); render();
+      } catch(e) { alert('정산 실패: '+dep2Error(e)); btn.disabled=false; }
+      finally {dep2.saving=false;}
+    };
+  }; show();
+}
+function dep2Bind() {
+  const $=id=>document.getElementById(id);
+  $('d2User').onchange=e=>{dep2.user=e.target.value;};
+  $('d2Mode').onchange=e=>{dep2.mode=e.target.value; renderDeposit();};
+  const storePeriod=()=>{ if(dep2.mode==='month'){dep2.monthFrom=$('d2From').value;dep2.monthTo=$('d2To').value;}else{dep2.from=$('d2From').value;dep2.to=$('d2To').value;} };
+  $('d2From').onchange=$('d2To').onchange=storePeriod;
+  $('d2Query').onclick=()=>{
+    storePeriod();
+    if(dep2.mode==='month') {
+      if(!/^\d{4}-\d{2}$/.test(dep2.monthFrom)||!/^\d{4}-\d{2}$/.test(dep2.monthTo)) return alert('시작 월과 끝 월을 입력해 주세요.');
+      dep2.from=dep2.monthFrom+'-01';
+      const [y,m]=dep2.monthTo.split('-').map(Number); dep2.to=dep2.monthTo+'-'+new Date(Date.UTC(y,m,0)).getUTCDate();
+    }
+    if(!dep2.from||!dep2.to||dep2.from>dep2.to) return alert('시작일과 종료일을 확인해 주세요.');
+    // Refresh both current balances and the requested ledger (also retries after SQL is applied).
+    dep2.loaded=false; depData=null; renderDeposit();
+  };
+  $('d2P80').onclick=()=>dep2PrintLedger(true); $('d2PA4').onclick=()=>dep2PrintLedger(false);
+  if($('d2DaysSave')) $('d2DaysSave').onclick=async()=>{
+    const days=Number($('d2Days').value); if(!Number.isInteger(days)||days<1||days>36500) return alert('1~36500일을 입력해 주세요.');
+    try {await dep2Rpc('mm_deposit_config',{p_days:days});await dep2Load();}catch(e){alert(dep2Error(e));}
+  };
+  if($('d2Settle')) $('d2Settle').onclick=dep2AskSettlement;
+  document.querySelectorAll('[data-d2-setprint]').forEach(b=>b.onclick=()=>doPrint(dep2Settlement80(dep2.report.settlements[Number(b.dataset.d2Setprint)]),'80mm auto'));
+  $('d2Day').onchange=e=>{dep2.day=e.target.value;dep2.daily=null; ['d2Csv','d2DailyPrint','d2Daily80'].forEach(id=>$(id).disabled=true);};
+  $('d2Daily').onclick=async()=>{
+    const day=$('d2Day').value; if(!day) return alert('날짜를 선택해 주세요.'); $('d2Daily').disabled=true;
+    try {dep2.daily=await dep2Rpc('mm_deposit_report',{p_from:day,p_to:day,p_user:null});dep2.day=day;renderDeposit();}
+    catch(e) {alert(dep2Missing(e)?'서버 확장 설정 적용 대기 중입니다.':dep2Error(e));$('d2Daily').disabled=false;}
+  };
+  $('d2Csv').onclick=dep2Download;
+  $('d2DailyPrint').onclick=()=>{if(dep2.daily)doPrint(dep2DailyHtml(dep2.daily,false),'A4');};
+  $('d2Daily80').onclick=()=>{if(dep2.daily)doPrint('<div class="rc">'+dep2DailyHtml(dep2.daily,true)+'</div>','80mm auto');};
+  if(!dep2.loaded&&!dep2.busy) dep2Load();
+}
+
 function depositReturn80Html(data, left) {
   const ln = (a, b) => `<div class="ln"><span>${a}</span><span>${b}</span></div>`;
   const hr = "<div>--------------------------------</div>";
@@ -1416,11 +1614,11 @@ function depositReturn80Html(data, left) {
     ? left.map(b => ln(esc(b.menuName), "병 " + n0(b.bottles) + " / 박스 " + n0(b.boxes))).join("")
     : "<div>없음</div>";
   return `<div class="rc"><div style="text-align:center"><b style="font-size:20px">공병·공박스 회수</b></div>${hr}
-    ${ln("업소", esc(data.userName || u.name || ""))}${ln("일시", ymd(data.at) + " " + hm(data.at))}${ln("기입", esc(data.by || session.name))}${hr}
+    ${ln("업소", esc(data.userName || u.name || ""))}${ln("일시", depKstTime(data.at))}${ln("기입", esc(data.by || session.name))}${hr}
     ${lines}${hr}
     <div style="font-size:17px;font-weight:700">${ln("돌려줄 금액", n0(data.amount) + "원")}</div>${hr}
     <div><b>남은 미회수</b></div>${leftHtml}${hr}
-    <div style="text-align:center;margin-top:12px">고객 서명 ______</div>
+    <div style="text-align:center;margin-top:12px">업소 확인·서명 __________________</div>
     <div style="margin-top:24px;border-top:2px dashed #555;text-align:center;font-size:11px;color:#555">✂ - - - 절취선 - - -</div></div>`;
 }
 
