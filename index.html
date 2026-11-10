@@ -537,15 +537,7 @@ document.getElementById("joinBtn").onclick = async () => {
   if (!name || p.length < 10 || pw.length < 4) return alert("상호, 번호, 비밀번호(4자 이상)를 확인해 주세요.");
   if (!validBizNo(biz)) return alert("사업자번호 10자리를 확인해 주세요. 하이픈(-)을 넣어도 됩니다.");
   if (cloud.ok) {
-    let r = await cloud.sb.rpc("mm_signup", { p_name: name, p_phone: p, p_pw: pw, p_bizno: biz });
-    if (r.error) {
-      const msg = String((r.error && r.error.message) || r.error || "");
-      if (/PGRST202|schema cache|could not find/i.test(msg)) {
-        r = await cloud.sb.rpc("mm_signup", { p_name: name, p_phone: p, p_pw: pw });
-      } else {
-        return alert("서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.");
-      }
-    }
+    const r = await cloud.sb.rpc("mm_signup", { p_name: name, p_phone: p, p_pw: pw, p_bizno: biz });
     if (r.error) return alert("서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.");
     if (r.data.error === "dup") return alert("이미 등록된 번호입니다.");
     if (r.data.error === "bizno") return alert("사업자번호 10자리를 확인해 주세요. 하이픈(-)을 넣어도 됩니다.");
