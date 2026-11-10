@@ -233,7 +233,9 @@
         <input id="joinPhone" inputmode="numeric" placeholder="01012345678" />
         <label>비밀번호</label>
         <input id="joinPw" type="password" placeholder="4자 이상" />
-        <p class="note">인증번호는 보내지 않습니다. 사장 또는 직원이 승인하면 이 번호로 로그인됩니다.</p>
+        <label>사업자번호</label>
+        <input id="joinBiz" inputmode="numeric" maxlength="12" placeholder="000-00-00000 또는 10자리" />
+        <p class="note">인증번호는 보내지 않습니다. 사업자번호를 넣고 신청하면, 사장 또는 직원이 승인한 뒤에 로그인됩니다.</p>
         <button class="btn primary" id="joinBtn">가입 신청</button>
         <button class="btn ghost" id="toLogin">로그인으로</button>
       </div>
@@ -320,6 +322,113 @@ function mileOf(m) { return Number(m && m.mileage) || 0; }
 function phone(v) { return String(v || "").replace(/\D/g, ""); }
 function fmtPhone(p) { p = phone(p); return p.length === 11 ? p.slice(0,3) + "-" + p.slice(3,7) + "-" + p.slice(7) : p.length === 10 ? p.slice(0,3) + "-" + p.slice(3,6) + "-" + p.slice(6) : p; }
 function showPhone(p) { p = phone(p); if (session && session.role === "staff") return p.slice(0,3) + "-****-" + p.slice(-4); return fmtPhone(p); }
+function userBizNo(u) { return phone((u && (u.bizNo || (u.taxInfo && u.taxInfo.bizNo))) || ""); }
+function fmtBizNo(b) { b = phone(b); return b.length === 10 ? b.slice(0,3) + "-" + b.slice(3,5) + "-" + b.slice(5) : b; }
+function validBizNo(v) {
+  const d = phone(v);
+  if (d.length !== 10) return false;
+  const w = [1, 3, 7, 1, 3, 7, 1, 3, 5];
+  let sum = 0;
+  for (let i = 0; i < 9; i++) sum += Number(d[i]) * w[i];
+  sum += Math.floor(Number(d[8]) * 5 / 10);
+  return (10 - (sum % 10)) % 10 === Number(d[9]);
+}
+function isLockedUser(u) {
+  if (!u) return false;
+  if (u.locked === true || u.locked === "true") return true;
+  const until = Number(u.lockUntil);
+  return u.role === "boss" && until && until > Date.now();
+}
+function canUnlock(u) {
+  if (!u || !session) return false;
+  if (session.role === "boss") return u.role !== "boss";
+  return session.role === "staff" && u.role === "customer";
+}
+function joinUserHtml(u) {
+  const biz = userBizNo(u);
+  return `<article class="item"><h3>${esc(u.name)}</h3><p>${esc(showPhone(u.phone))}${biz ? " · 사업자 " + esc(fmtBizNo(biz)) : ""}</p>
+      <div class="actions"><button class="btn accent small" data-ok="${u.id}">승인</button><button class="btn line small" data-no="${u.id}">거절</button></div></article>`;
+}
+function lockedUsers() {
+  return db.users.filter(u => u.id !== session.id && isLockedUser(u) && u.role !== "boss");
+}
+function lockedSectionHtml() {
+  const list = lockedUsers();
+  const cards = list.length ? `<div class="list">${list.map(u => {
+    const biz = userBizNo(u);
+    const whenAt = u.lockedAt ? when(Number(u.lockedAt)) : "";
+    return `<article class="item"><h3>${esc(u.name)} <span class="badge">잠김</span></h3>
+      <p>${esc(ROLE[u.role] || u.role)} · ${esc(showPhone(u.phone))}${biz ? " · 사업자 " + esc(fmtBizNo(biz)) : ""}${whenAt ? " · " + esc(whenAt) : ""}</p>
+      <p class="note">비밀번호를 5회 틀려 잠겼습니다.</p>
+      ${canUnlock(u) ? `<div class="actions"><button class="btn accent small" data-ul="${u.id}">잠금 해제</button></div>` : `<p class="note">직원 계정은 사장님만 잠금 해제할 수 있습니다.</p>`}
+    </article>`;
+  }).join("")}</div>` : `<div class="empty">잠긴 계정이 없습니다.</div>`;
+  return `<h3 style="margin:16px 0 8px;font-size:15px">잠긴 계정</h3>
+    <p class="note" style="margin-top:0">비밀번호 5회 오류 시 잠깁니다. 고객은 사장·직원이, 직원은 사장만 해제할 수 있습니다.</p>
+    ${cards}`;
+}
+function bindUnlockActions() {
+  document.querySelectorAll("[data-ul]").forEach(b => b.onclick = () => unlockUser(b.dataset.ul));
+}
+async function unlockUser(id) {
+  if (!cloud.ok) {
+    const u = db.users.find(x => x.id === id);
+    if (!u || !canUnlock(u)) return alert("이 계정은 사장님만 잠금 해제할 수 있습니다.");
+    u.locked = false; u.failCount = 0; delete u.lockedAt; delete u.lockUntil;
+    save(); render(); return;
+  }
+  const r = await cloud.sb.rpc("mm_unlock", { p_token: cloudToken(), p_user: id });
+  if (r.error) return alert("잠금 해제를 아직 할 수 없습니다. 서버 업데이트가 끝나면 다시 시도해 주세요.");
+  if (r.data && r.data.error === "forbidden") return alert("이 계정은 사장님만 잠금 해제할 수 있습니다.");
+  if (r.data && r.data.error === "none") return alert("계정을 찾지 못했습니다.");
+  if (!r.data || !r.data.ok) return alert("잠금 해제에 실패했습니다.");
+  const u = db.users.find(x => x.id === id);
+  if (u) { u.locked = false; u.failCount = 0; delete u.lockedAt; delete u.lockUntil; }
+  render();
+}
+function loginFailAlert(r) {
+  if (r && r.error === "locked") {
+    if (r.until) {
+      const d = new Date(Number(r.until));
+      const t = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+      return alert("비밀번호를 5회 틀려 15분간 로그인이 잠겼습니다. " + t + " (한국시간) 이후에 다시 시도해 주세요.");
+    }
+    return alert("비밀번호를 5회 틀려 계정이 잠겼습니다. 사장 또는 직원에게 잠금 해제를 요청해 주세요.");
+  }
+  if (r && r.remain != null) return alert("번호 또는 비밀번호가 맞지 않습니다. " + r.remain + "회 더 틀리면 계정이 잠깁니다.");
+  return alert("번호 또는 비밀번호가 맞지 않습니다.");
+}
+function localLogin(p, pw) {
+  const u = db.users.find(x => x.phone === p);
+  if (!u) return { error: "bad" };
+  if (u.role === "boss" && u.lockUntil && Number(u.lockUntil) > Date.now()) return { error: "locked", remain: 0, until: Number(u.lockUntil) };
+  if (u.locked === true || u.locked === "true") return { error: "locked", remain: 0 };
+  if (u.pw !== pw) {
+    u.failCount = (Number(u.failCount) || 0) + 1;
+    if (u.failCount >= 5) {
+      if (u.role === "boss") {
+        u.failCount = 0;
+        u.lockUntil = Date.now() + 15 * 60 * 1000;
+        save();
+        return { error: "locked", remain: 0, until: u.lockUntil };
+      }
+      u.failCount = 0;
+      u.locked = true;
+      u.lockedAt = Date.now();
+      save();
+      return { error: "locked", remain: 0 };
+    }
+    save();
+    return { error: "bad", remain: 5 - u.failCount };
+  }
+  u.failCount = 0;
+  u.locked = false;
+  delete u.lockUntil;
+  delete u.lockedAt;
+  if (u.status !== "active") { save(); return { error: u.status || "bad" }; }
+  save();
+  return { user: u };
+}
 function esc(s) {
   const d = document.createElement("div");
   d.textContent = s == null ? "" : String(s);
@@ -396,12 +505,13 @@ function maybeShowAd() {
 document.getElementById("loginBtn").onclick = async () => {
   const p = phone(document.getElementById("loginPhone").value);
   const pw = document.getElementById("loginPw").value;
-  let user;
+  let r;
   if (cloud.ok) {
-    let r; try { r = await cloudLogin(p, pw); } catch (e) { return alert("서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요."); }
-    user = r.user || (r.error === "pending" || r.error === "rejected" ? { status: r.error } : null);
-  } else user = db.users.find(u => u.phone === p && u.pw === pw);
-  if (!user) return alert("번호 또는 비밀번호가 맞지 않습니다.");
+    try { r = await cloudLogin(p, pw); } catch (e) { return alert("서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요."); }
+  } else r = localLogin(p, pw);
+  if (r && (r.error === "locked" || (!r.user && r.error && r.error !== "pending" && r.error !== "rejected"))) return loginFailAlert(r);
+  const user = (r && r.user) || (r && (r.error === "pending" || r.error === "rejected") ? { status: r.error } : null);
+  if (!user) return loginFailAlert(r || {});
   if (user.status === "pending") return alert("가입 승인 대기 중입니다. 사장 또는 직원이 승인하면 로그인됩니다.");
   if (user.status === "rejected") return alert("가입이 거절된 번호입니다.");
   session = user;
@@ -411,7 +521,7 @@ document.getElementById("toJoin").onclick = () => {
   document.getElementById("loginBox").style.display = "none";
   document.getElementById("joinBox").style.display = "block";
   document.getElementById("authTitle").textContent = "고객 가입";
-  document.getElementById("authSub").textContent = "휴대폰 번호로만 신청합니다. 인증번호 없이 사장 승인으로 가입됩니다.";
+  document.getElementById("authSub").textContent = "사업자번호와 휴대폰 번호로 신청합니다. 인증번호 없이 사장 또는 직원 승인으로 가입됩니다.";
 };
 document.getElementById("toLogin").onclick = () => {
   document.getElementById("joinBox").style.display = "none";
@@ -423,15 +533,26 @@ document.getElementById("joinBtn").onclick = async () => {
   const name = document.getElementById("joinName").value.trim();
   const p = phone(document.getElementById("joinPhone").value);
   const pw = document.getElementById("joinPw").value;
+  const biz = phone(document.getElementById("joinBiz").value);
   if (!name || p.length < 10 || pw.length < 4) return alert("상호, 번호, 비밀번호(4자 이상)를 확인해 주세요.");
+  if (!validBizNo(biz)) return alert("사업자번호 10자리를 확인해 주세요. 하이픈(-)을 넣어도 됩니다.");
   if (cloud.ok) {
-    const r = await cloud.sb.rpc("mm_signup", { p_name: name, p_phone: p, p_pw: pw });
+    let r = await cloud.sb.rpc("mm_signup", { p_name: name, p_phone: p, p_pw: pw, p_bizno: biz });
+    if (r.error) {
+      const msg = String((r.error && r.error.message) || r.error || "");
+      if (/PGRST202|schema cache|could not find/i.test(msg)) {
+        r = await cloud.sb.rpc("mm_signup", { p_name: name, p_phone: p, p_pw: pw });
+      } else {
+        return alert("서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+      }
+    }
     if (r.error) return alert("서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.");
     if (r.data.error === "dup") return alert("이미 등록된 번호입니다.");
+    if (r.data.error === "bizno") return alert("사업자번호 10자리를 확인해 주세요. 하이픈(-)을 넣어도 됩니다.");
     if (r.data.error) return alert("상호, 번호, 비밀번호(4자 이상)를 확인해 주세요.");
   } else {
   if (db.users.some(u => u.phone === p)) return alert("이미 등록된 번호입니다.");
-  db.users.push({ id: uid("u"), role: "customer", name, phone: p, pw, status: "pending" });
+  db.users.push({ id: uid("u"), role: "customer", name, phone: p, pw, status: "pending", bizNo: biz, taxInfo: { bizNo: biz }, failCount: 0, locked: false });
   save();
   }
   alert("가입 신청이 들어갔습니다. 사장 또는 직원이 승인하면 로그인할 수 있습니다.");
@@ -617,7 +738,7 @@ function orderMoney(o) {
   return { dep, rt, orderPrice, pay };
 }
 function renderCart() {
-  if (evBiz === null) { const me = db.users.find(u => u.id === session.id); evBiz = (me && me.taxInfo && me.taxInfo.bizNo) || ""; }
+  if (evBiz === null) { const me = db.users.find(u => u.id === session.id); evBiz = (me && userBizNo(me)) || ""; }
   if (depData === null && cloud.ok) { document.getElementById("body").innerHTML = `<div class="empty">불러오는 중…</div>`; loadDeposit(); return; }
   const supply = cart.reduce((s, i) => s + i.qty * i.price, 0);
   const vat = Math.round(supply * 0.1);
@@ -1084,10 +1205,11 @@ function renderJoins() {
   const joins = db.users.filter(u => u.role === "customer" && u.status === "pending");
   document.getElementById("body").innerHTML = `
     <div class="warn">고객 가입은 사장과 직원 모두 승인할 수 있습니다. 메뉴·분류·사진 반영은 사장만 승인합니다.</div>
-    ${joins.length ? `<div class="list" style="margin-top:12px">${joins.map(u => `<article class="item"><h3>${esc(u.name)}</h3><p>${esc(showPhone(u.phone))}</p>
-      <div class="actions"><button class="btn accent small" data-ok="${u.id}">승인</button><button class="btn line small" data-no="${u.id}">거절</button></div></article>`).join("")}</div>` : `<div class="empty">대기 중인 가입이 없습니다.</div>`}
+    ${joins.length ? `<div class="list" style="margin-top:12px">${joins.map(joinUserHtml).join("")}</div>` : `<div class="empty">대기 중인 가입이 없습니다.</div>`}
+    ${lockedSectionHtml()}
     <div class="actions"><button class="btn line small" id="resetPw">고객 비밀번호 초기화</button></div>`;
   bindJoinActions();
+  bindUnlockActions();
   document.getElementById("resetPw").onclick = openResetPw;
 }
 function bindJoinActions() {
@@ -1103,15 +1225,16 @@ function renderApprove() {
   const joins = db.users.filter(u => u.role === "customer" && u.status === "pending");
   document.getElementById("body").innerHTML = `
     <h3 style="margin:4px 0 8px;font-size:15px">가입 승인</h3>
-    <p class="note" style="margin-top:0">직원도 가입은 승인할 수 있습니다.</p>
-    ${joins.length ? `<div class="list">${joins.map(u => `<article class="item"><h3>${esc(u.name)}</h3><p>${esc(showPhone(u.phone))}</p>
-      <div class="actions"><button class="btn accent small" data-ok="${u.id}">승인</button><button class="btn line small" data-no="${u.id}">거절</button></div></article>`).join("")}</div>` : `<div class="empty">대기 중인 가입이 없습니다.</div>`}
+    <p class="note" style="margin-top:0">직원도 가입은 승인할 수 있습니다. 신청한 사업자번호가 함께 보입니다.</p>
+    ${joins.length ? `<div class="list">${joins.map(joinUserHtml).join("")}</div>` : `<div class="empty">대기 중인 가입이 없습니다.</div>`}
+    ${lockedSectionHtml()}
     <h3 style="margin:16px 0 8px;font-size:15px">메뉴 · 분류 · 사진</h3>
     ${reqs.length ? `<div class="list">${reqs.map(r => `<article class="item"><h3>${esc(reqTitle(r))}</h3><p>${esc(reqDesc(r))}</p>
       ${r.photo ? `<div class="photo-row"><img src="${r.photo}" alt="" /></div>` : ""}
       <div class="actions"><button class="btn accent small" data-yes="${r.id}">승인 반영</button><button class="btn line small" data-rej="${r.id}">거절</button></div></article>`).join("")}</div>` : `<div class="empty">대기 중인 수정이 없습니다.</div>`}
     <div class="actions"><button class="btn line small" id="resetPw">비밀번호 초기화</button></div>`;
   bindJoinActions();
+  bindUnlockActions();
   document.querySelectorAll("[data-yes]").forEach(b => b.onclick = () => approve(b.dataset.yes));
   document.querySelectorAll("[data-rej]").forEach(b => b.onclick = () => {
     db.requests.find(r => r.id === b.dataset.rej).status = "rejected"; save(); render();
