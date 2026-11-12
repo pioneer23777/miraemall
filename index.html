@@ -1524,7 +1524,7 @@ function renderDeposit() {
       depData = null; dep2.loaded = false; dep2.daily = null;
       doPrint(depositReturn80Html(data, left), "80mm auto");
       render();
-    } catch (e) { alert("회수 저장 실패: " + (e.message || e)); }
+    } catch (e) { alert("회수 저장 실패: " + dep2Error(e)); }
     finally { if (saveBtn.isConnected) saveBtn.disabled = false; }
   };
 }
@@ -1546,7 +1546,7 @@ async function dep2Rpc(name, args) {
 }
 function dep2Error(e) {
   const text=e.message||String(e);
-  if (/RETURN_OVER/.test(text)) return '미회수 잔량보다 많습니다. 새로 조회하고 수량을 확인해 주세요.';
+  if (/RETURN_OVER/.test(text)) return '미회수 잔량보다 많습니다. 잔량을 넘는 초과 회수는 서버 업데이트(bottleexcess.sql) 적용 후 기입할 수 있습니다.';
   if (/FORBIDDEN/.test(text)) return '권한이 없습니다. 거래처 폐업 정산과 기준 변경은 사장만 가능합니다.';
   if (/AUTH/.test(text)) return '로그인을 다시 해 주세요.';
   return text;
@@ -1584,6 +1584,7 @@ function dep2Html() {
     ${session.role==='boss'?`<article class="item"><h3>거래처 폐업 정산 (사장 전용 · 청구 없이 신고)</h3><p class="note">거래처가 폐업해 공병·공박스를 돌려받을 수 없을 때만 사용합니다. 업소에 추가 청구는 없습니다. 이미 받은 미회수 보증금을 부가세 포함 금액으로 보아 <b>공급가액 = 금액×10/11, 부가세 = 금액 − 공급가액</b>으로 나누고, 정산일의 <b>과세 매출</b>로 신고합니다(부가기본통칙 13-48-5 ②).</p>
       <button class="btn small" id="d2Settle" ${disabled}>거래처 폐업 정산 (청구 없이 신고)</button></article>`:''}
     <article class="item"><h3>거래처 폐업 정산 기록</h3>${r?(r.settlements||[]).map((s,i)=>`<p>${depKstTime(s.at)} · ${esc(s.userName)} · 보증금 충당 ${won(s.amount)} · ${esc(s.by)}<br>${esc(s.memo)}<br><small>${settleTaxLine(s)}</small> <button class="btn small" data-d2-setprint="${i}">80mm 정산서 재출력</button></p>`).join('')||'<p>선택 기간 내 기록 없음</p>':'<p>기간 조회 후 표시됩니다.</p>'}</article>
+    ${r&&(r.excessReview||[]).length?`<article class="item"><h3 style="color:#b91c1c">⚠ 사장 확인 필요 · 폐업 정산 업소의 초과 회수</h3><p class="note">거래처 폐업 정산 이력이 있는 업소에서 초과 회수가 들어왔습니다. 자동으로 정산을 되돌리지 않습니다. 내용을 확인해 주세요.</p>${r.excessReview.map(z=>`<p>${esc(String(z.day))} · ${esc(z.user_name)} · ${esc(z.menu_name)} · 공병 ${n0(z.bottles)}병 / 공박스 ${n0(z.boxes)}박스 · ${won(z.amount)} · ${esc(z.by_name||'')}${session.role==='boss'?` <button class="btn small" data-d2-exok="${esc(String(z.id))}">확인 완료</button>`:''}</p>`).join('')}</article>`:''}
     <article class="item"><h3>일별 회수 내역 내보내기</h3><p class="note">실제로 회수한 내역만 업소별·품목별로 합산합니다. 폐업 정산은 제외합니다. 센터 자동 전송이 아닌 내부 확인용 CSV입니다.</p>
       <input id="d2Day" type="date" value="${dep2.day}"><div class="actions" style="flex-wrap:wrap"><button class="btn small" id="d2Daily" ${unavailable?'disabled':''}>일별 조회</button><button class="btn small" id="d2Csv" ${dep2.daily?'':'disabled'}>CSV 내려받기</button><button class="btn small" id="d2DailyPrint" ${dep2.daily?'':'disabled'}>A4 출력</button><button class="btn small" id="d2Daily80" ${dep2.daily?'':'disabled'}>80mm 출력</button></div>
       ${dep2.daily?dep2DailyHtml(dep2.daily):''}</article>`;
@@ -1593,51 +1594,55 @@ function dep2LedgerRows(r) {
   const key=(z)=>JSON.stringify([z.user_id,z.menu_id]);
   const ensure=z=>{const k=key(z); if(!balances.has(k)) balances.set(k,{user_id:z.user_id,menu_id:z.menu_id,user_name:z.user_name,menu_name:z.menu_name,bottles:0,boxes:0,amount:0}); return balances.get(k);};
   (r.opening||[]).forEach(z=>{const b=ensure(z); b.bottles+=Number(z.bottles); b.boxes+=Number(z.boxes); b.amount+=Number(z.amount);});
-  balances.forEach(b=>out.push(Object.assign({day:r.from,kind:'opening',ob:0,ox:0,ib:0,ix:0,sb:0,sx:0},b)));
+  balances.forEach(b=>out.push(Object.assign({day:r.from,kind:'opening',ob:0,ox:0,ib:0,ix:0,sb:0,sx:0,eb:0,ex:0,ea:0},b)));
+  const dayOf=z=>{const k=JSON.stringify([z.day,z.user_id,z.menu_id]);
+    if(!days.has(k)) days.set(k,{day:z.day,user_id:z.user_id,menu_id:z.menu_id,user_name:z.user_name,menu_name:z.menu_name,kind:'daily',ob:0,ox:0,ib:0,ix:0,sb:0,sx:0,eb:0,ex:0,ea:0,delta:0});
+    return days.get(k);};
   (r.entries||[]).forEach(z=>{
-    const k=JSON.stringify([z.day,z.user_id,z.menu_id]);
-    if(!days.has(k)) days.set(k,{day:z.day,user_id:z.user_id,menu_id:z.menu_id,user_name:z.user_name,menu_name:z.menu_name,kind:'daily',ob:0,ox:0,ib:0,ix:0,sb:0,sx:0,delta:0});
-    const d=days.get(k), prefix=z.kind==='out'?'o':z.kind==='in'?'i':'s';
+    const d=dayOf(z), prefix=z.kind==='out'?'o':z.kind==='in'?'i':'s';
     d[prefix+'b']+=Number(z.bottles); d[prefix+'x']+=Number(z.boxes); d.delta+=(z.kind==='out'?1:-1)*Number(z.amount);
   });
+  // 초과 회수: 보증금은 반환하지만 잔량에는 영향 없음 (잔량 0 아래로 안 내려감)
+  (r.excess||[]).forEach(z=>{const d=dayOf(z); d.eb+=Number(z.bottles)||0; d.ex+=Number(z.boxes)||0; d.ea+=Number(z.amount)||0;});
   Array.from(days.values()).sort((a,b)=>a.day.localeCompare(b.day)||a.user_name.localeCompare(b.user_name)||a.menu_name.localeCompare(b.menu_name)).forEach(d=>{
     const b=ensure(d); b.bottles+=d.ob-d.ib-d.sb; b.boxes+=d.ox-d.ix-d.sx; b.amount+=d.delta;
     out.push(Object.assign({},d,{bottles:b.bottles,boxes:b.boxes,amount:b.amount}));
   });
-  balances.forEach(b=>out.push(Object.assign({day:r.to,kind:'closing',ob:0,ox:0,ib:0,ix:0,sb:0,sx:0},b)));
+  balances.forEach(b=>out.push(Object.assign({day:r.to,kind:'closing',ob:0,ox:0,ib:0,ix:0,sb:0,sx:0,eb:0,ex:0,ea:0},b)));
   return out;
 }
 function dep2LedgerHtml(r, receipt) {
   const rows=dep2LedgerRows(r);
   if(!rows.length) return '<p>해당 기간 내 기록·기초잔량 없음</p>';
   const label=z=>z.kind==='opening'?'기초':z.kind==='closing'?'기말':z.day;
-  if(receipt) return rows.map(z=>`<div style="border-top:1px dashed #777;padding:6px 0;break-inside:avoid"><b>${esc(z.user_name)} / ${esc(z.menu_name)}</b><div>${label(z)}${z.kind==='daily'?` · 출고 ${n0(z.ob)}/${n0(z.ox)}<br>회수 ${n0(z.ib)}/${n0(z.ix)} · 폐업정산 ${n0(z.sb)}/${n0(z.sx)}`:''}</div><div>잔량 ${n0(z.bottles)}/${n0(z.boxes)}<br>보증금 잔액 ${won(z.amount)}</div></div>`).join('');
-  return `<div style="overflow-x:auto"><table style="width:100%;min-width:640px;border-collapse:collapse;font-size:12px"><thead><tr>${['날짜','업소','품목','출고 병/박스','회수 병/박스','폐업정산 병/박스','잔량 병/박스','보증금 잔액'].map(x=>`<th>${x}</th>`).join('')}</tr></thead><tbody>${rows.map(z=>`<tr>${[label(z),esc(z.user_name),esc(z.menu_name),n0(z.ob)+'/'+n0(z.ox),n0(z.ib)+'/'+n0(z.ix),n0(z.sb)+'/'+n0(z.sx),n0(z.bottles)+'/'+n0(z.boxes),won(z.amount)].map(x=>`<td style="padding:5px;border-bottom:1px solid #ddd">${x}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  if(receipt) return rows.map(z=>`<div style="border-top:1px dashed #777;padding:6px 0;break-inside:avoid"><b>${esc(z.user_name)} / ${esc(z.menu_name)}</b><div>${label(z)}${z.kind==='daily'?` · 출고 ${n0(z.ob)}/${n0(z.ox)}<br>회수 ${n0(z.ib)}/${n0(z.ix)} · 폐업정산 ${n0(z.sb)}/${n0(z.sx)}${z.eb||z.ex?`<br>초과 회수 ${n0(z.eb)}/${n0(z.ex)} · ${won(z.ea)} (보증금 반환, 비과세)`:''}`:''}</div><div>잔량 ${n0(z.bottles)}/${n0(z.boxes)}<br>보증금 잔액 ${won(z.amount)}</div></div>`).join('');
+  return `<div style="overflow-x:auto"><table style="width:100%;min-width:640px;border-collapse:collapse;font-size:12px"><thead><tr>${['날짜','업소','품목','출고 병/박스','회수 병/박스','초과 회수 병/박스','초과 회수 반환액(비과세)','폐업정산 병/박스','잔량 병/박스','보증금 잔액'].map(x=>`<th>${x}</th>`).join('')}</tr></thead><tbody>${rows.map(z=>`<tr>${[label(z),esc(z.user_name),esc(z.menu_name),n0(z.ob)+'/'+n0(z.ox),n0(z.ib)+'/'+n0(z.ix),n0(z.eb)+'/'+n0(z.ex),won(z.ea),n0(z.sb)+'/'+n0(z.sx),n0(z.bottles)+'/'+n0(z.boxes),won(z.amount)].map(x=>`<td style="padding:5px;border-bottom:1px solid #ddd">${x}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
 }
 function dep2PrintLedger(receipt) {
   const r=dep2.report; if(!r) return;
-  doPrint(`<div class="${receipt?'rc':''}"><h3>공병·공박스 수불대장</h3><p>${esc(r.from)} ~ ${esc(r.to)} (KST)<br>수량 단위: 병 / 박스</p>${dep2LedgerHtml(r,receipt)}<p style="font-size:11px">보증금 잔액은 기록 당시 금액의 누계이며 비과세(공급가액 제외)입니다. 폐업 정산분은 과세 매출로 정산서·매입·매출 참조.</p></div>`,receipt?'80mm auto':'A4');
+  doPrint(`<div class="${receipt?'rc':''}"><h3>공병·공박스 수불대장</h3><p>${esc(r.from)} ~ ${esc(r.to)} (KST)<br>수량 단위: 병 / 박스</p>${dep2LedgerHtml(r,receipt)}<p style="font-size:11px">보증금 잔액은 기록 당시 금액의 누계이며 비과세(공급가액 제외)입니다. 초과 회수는 보증금을 반환하되 잔량은 0 아래로 내려가지 않습니다. 폐업 정산분은 과세 매출로 정산서·매입·매출 참조.</p></div>`,receipt?'80mm auto':'A4');
 }
 function dep2DailyRows(r) {
   const map=new Map();
-  (r.entries||[]).filter(z=>z.kind==='in').forEach(z=>{
-    const key=JSON.stringify([z.user_id,z.menu_id]);
-    if(!map.has(key)) map.set(key,{day:z.day,userId:z.user_id,userName:z.user_name,menuId:z.menu_id,menuName:z.menu_name,bottles:0,boxes:0,amount:0});
-    const a=map.get(key); a.bottles+=Number(z.bottles); a.boxes+=Number(z.boxes); a.amount+=Number(z.amount);
-  });
+  const get=z=>{const key=JSON.stringify([z.user_id,z.menu_id]);
+    if(!map.has(key)) map.set(key,{day:z.day,userId:z.user_id,userName:z.user_name,menuId:z.menu_id,menuName:z.menu_name,bottles:0,boxes:0,amount:0,exBottles:0,exBoxes:0,exAmount:0,total:0});
+    return map.get(key);};
+  (r.entries||[]).filter(z=>z.kind==='in').forEach(z=>{const a=get(z); a.bottles+=Number(z.bottles); a.boxes+=Number(z.boxes); a.amount+=Number(z.amount); a.total+=Number(z.amount);});
+  (r.excess||[]).forEach(z=>{const a=get(z); a.exBottles+=Number(z.bottles)||0; a.exBoxes+=Number(z.boxes)||0; a.exAmount+=Number(z.amount)||0; a.total+=Number(z.amount)||0;});
   return Array.from(map.values()).sort((a,b)=>a.userName.localeCompare(b.userName)||a.menuName.localeCompare(b.menuName));
 }
 function dep2DailyHtml(r,receipt) {
   const rows=dep2DailyRows(r);
   const title=`<h3>일별 회수 내역</h3><p>${esc(r.from)} (KST) · 내부 확인용</p>`;
   if(!rows.length) return title+'<p>회수 내역 없음</p>';
-  const total=rows.reduce((a,z)=>({bottles:a.bottles+z.bottles,boxes:a.boxes+z.boxes,amount:a.amount+z.amount}),{bottles:0,boxes:0,amount:0});
-  const body=receipt?rows.map(z=>`<p><b>${esc(z.userName)} / ${esc(z.menuName)}</b><br>병 ${n0(z.bottles)} · 박스 ${n0(z.boxes)}<br>${won(z.amount)}</p>`).join(''):`<table style="width:100%;font-size:12px"><thead><tr><th>업소</th><th>품목</th><th>회수 병</th><th>회수 박스</th><th>보증금 반환액</th></tr></thead><tbody>${rows.map(z=>`<tr><td>${esc(z.userName)}</td><td>${esc(z.menuName)}</td><td>${n0(z.bottles)}</td><td>${n0(z.boxes)}</td><td>${won(z.amount)}</td></tr>`).join('')}</tbody></table>`;
-  return title+body+`<p><b>합계: 병 ${n0(total.bottles)} / 박스 ${n0(total.boxes)} · ${won(total.amount)}</b></p>`;
+  const total=rows.reduce((a,z)=>({bottles:a.bottles+z.bottles,boxes:a.boxes+z.boxes,amount:a.amount+z.amount,exBottles:a.exBottles+z.exBottles,exBoxes:a.exBoxes+z.exBoxes,exAmount:a.exAmount+z.exAmount,total:a.total+z.total}),{bottles:0,boxes:0,amount:0,exBottles:0,exBoxes:0,exAmount:0,total:0});
+  const exTxt=z=>z.exBottles||z.exBoxes?`<br>초과 회수 병 ${n0(z.exBottles)} · 박스 ${n0(z.exBoxes)} · ${won(z.exAmount)}`:'';
+  const body=receipt?rows.map(z=>`<p><b>${esc(z.userName)} / ${esc(z.menuName)}</b><br>병 ${n0(z.bottles)} · 박스 ${n0(z.boxes)} · ${won(z.amount)}${exTxt(z)}<br>반환 합계 ${won(z.total)}</p>`).join(''):`<table style="width:100%;font-size:12px"><thead><tr><th>업소</th><th>품목</th><th>회수 병</th><th>회수 박스</th><th>보증금 반환액</th><th>초과 회수 병</th><th>초과 회수 박스</th><th>초과 회수 반환액</th><th>반환 합계</th></tr></thead><tbody>${rows.map(z=>`<tr><td>${esc(z.userName)}</td><td>${esc(z.menuName)}</td><td>${n0(z.bottles)}</td><td>${n0(z.boxes)}</td><td>${won(z.amount)}</td><td>${n0(z.exBottles)}</td><td>${n0(z.exBoxes)}</td><td>${won(z.exAmount)}</td><td>${won(z.total)}</td></tr>`).join('')}</tbody></table>`;
+  return title+body+`<p><b>합계: 병 ${n0(total.bottles)} / 박스 ${n0(total.boxes)} · ${won(total.amount)}${total.exBottles||total.exBoxes?` · 초과 회수 병 ${n0(total.exBottles)} / 박스 ${n0(total.exBoxes)} · ${won(total.exAmount)}`:''} · 반환 합계 ${won(total.total)} (비과세)</b></p>`;
 }
 function dep2CsvText(r) {
   const safe=v=>{let s=String(v==null?'':v); if(typeof v==='string' && /^[\s]*[=+\-@\t\r]/.test(s)) s="'"+s; return '"'+s.replace(/"/g,'""')+'"';};
-  const rows=[['회수일(KST)','업소ID','업소명','품목ID','품목명','회수병수','회수박스수','공병·공박스보증금 반환액(원·비과세)'],...dep2DailyRows(r).map(z=>[z.day,z.userId,z.userName,z.menuId,z.menuName,z.bottles,z.boxes,z.amount])];
+  const rows=[['회수일(KST)','업소ID','업소명','품목ID','품목명','회수병수','회수박스수','공병·공박스보증금 반환액(원·비과세)','초과 회수 병수','초과 회수 박스수','초과 회수 (보증금 반환, 비과세)(원)','보증금 반환 합계(원·비과세)'],...dep2DailyRows(r).map(z=>[z.day,z.userId,z.userName,z.menuId,z.menuName,z.bottles,z.boxes,z.amount,z.exBottles,z.exBoxes,z.exAmount,z.total])];
   return '\uFEFF'+rows.map(row=>row.map(safe).join(',')).join('\r\n')+'\r\n';
 }
 function dep2Download() {
@@ -1707,6 +1712,9 @@ function dep2Bind() {
     try {await dep2Rpc('mm_deposit_config',{p_days:days});await dep2Load();}catch(e){alert(dep2Error(e));}
   };
   if($('d2Settle')) $('d2Settle').onclick=dep2AskSettlement;
+  document.querySelectorAll('[data-d2-exok]').forEach(b=>b.onclick=async()=>{
+    try{await dep2Rpc('mm_deposit_excess_review',{p_id:Number(b.dataset.d2Exok)});dep2.loaded=false;renderDeposit();}catch(e){alert(dep2Error(e));}
+  });
   document.querySelectorAll('[data-d2-setprint]').forEach(b=>b.onclick=()=>doPrint(dep2Settlement80(dep2.report.settlements[Number(b.dataset.d2Setprint)]),'80mm auto'));
   $('d2Day').onchange=e=>{dep2.day=e.target.value;dep2.daily=null; ['d2Csv','d2DailyPrint','d2Daily80'].forEach(id=>$(id).disabled=true);};
   $('d2Daily').onclick=async()=>{
@@ -1741,7 +1749,7 @@ function evLabel(e) { return e && e.type && e.type !== "none" ? evText(e) : "미
 function settleTaxLine(s) { const t = settleTax(s); return `거래처 폐업 · 청구 없이 신고 · 과세 매출 공급가액 ${won(t.supply)} · 부가세 ${won(t.vat)} · 증빙 ${esc(evLabel(settleEvidence(s)))}`; }
 
 const vl = { mode: "quarter", qYear: 0, q: 1, monthFrom: "", monthTo: "", from: "", to: "", report: null, busy: false, error: "", missing: false, key: "" };
-const VL_NUM = ["orders", "supply", "vat", "outB", "outBAmt", "outX", "outXAmt", "inB", "inBAmt", "inX", "inXAmt", "setB", "setX", "setCount", "setAmt", "setSupply", "setVat", "balB", "balX", "balAmt"];
+const VL_NUM = ["orders", "supply", "vat", "outB", "outBAmt", "outX", "outXAmt", "inB", "inBAmt", "inX", "inXAmt", "exB", "exBAmt", "exX", "exXAmt", "setB", "setX", "setCount", "setAmt", "setSupply", "setVat", "balB", "balX", "balAmt"];
 function vlInit() {
   const today = kstDay(Date.now());
   if (!vl.from) {
@@ -1779,6 +1787,8 @@ function vlCompute(r, from, to) {
       else if (z.kind === "in") { a.inB += b; a.inBAmt += b * bd; a.inX += x; a.inXAmt += x * xd; a.balB -= b; a.balX -= x; a.balAmt -= amt; }
       else if (z.kind === "settle") { a.setB += b; a.setX += x; a.balB -= b; a.balX -= x; a.balAmt -= amt; }
     });
+    (r.excess || []).forEach(z => { const a = get(z.user_id, z.user_name), b = Number(z.bottles) || 0, x = Number(z.boxes) || 0;
+      a.exB += b; a.exBAmt += b * (Number(z.bottle_dep) || 0); a.exX += x; a.exXAmt += x * (Number(z.box_dep) || 0); });
     (r.settlements || []).forEach(s => { const a = get(s.userId, s.userName), t = settleTax(s); a.setCount++; a.setAmt += t.amount; a.setSupply += t.supply; a.setVat += t.vat; a.setEv = settleEvidence(s); });
   }
   const rows = Array.from(U.values()).filter(a => VL_NUM.some(k => a[k])).sort((a, b) => String(a.name).localeCompare(String(b.name)));
@@ -1794,15 +1804,14 @@ function vlEvText(a) {
   return p.join(" · ") || "-";
 }
 const VL_HEAD = ["업소", "사업자번호", "주문 과세 공급가액", "주문 부가세", "공병 출고(병)", "공병보증금 출고액(비과세)", "공박스 출고(박스)", "공박스보증금 출고액(비과세)",
-  "공병 회수(병)", "공병보증금 반환액(비과세)", "공박스 회수(박스)", "공박스보증금 반환액(비과세)", "폐업정산 공급가액", "폐업정산 부가세", "폐업정산 보증금 충당액(청구 없음)", "과세매출 공급가액 합계", "부가세 합계",
+  "공병 회수(병)", "공병보증금 반환액(비과세)", "공박스 회수(박스)", "공박스보증금 반환액(비과세)", "초과 회수 공병(병)", "초과 회수 공병보증금 반환액(비과세)", "초과 회수 공박스(박스)", "초과 회수 공박스보증금 반환액(비과세)", "폐업정산 공급가액", "폐업정산 부가세", "폐업정산 보증금 충당액(청구 없음)", "과세매출 공급가액 합계", "부가세 합계",
   "미회수 공병(병)", "미회수 공박스(박스)", "미회수 공병·공박스보증금 잔액", "증빙"];
 function vlRow(a) {
-  return [a.name, a.bizNo ? fmtBizNo(a.bizNo) : "", a.supply, a.vat, a.outB, a.outBAmt, a.outX, a.outXAmt, a.inB, a.inBAmt, a.inX, a.inXAmt,
+  return [a.name, a.bizNo ? fmtBizNo(a.bizNo) : "", a.supply, a.vat, a.outB, a.outBAmt, a.outX, a.outXAmt, a.inB, a.inBAmt, a.inX, a.inXAmt, a.exB, a.exBAmt, a.exX, a.exXAmt,
     a.setSupply, a.setVat, a.setAmt, a.supply + a.setSupply, a.vat + a.setVat, a.balB, a.balX, a.balAmt, vlEvText(a)];
 }
 function vlTableHtml(c) {
-  const money = new Set([2, 3, 5, 7, 9, 11, 12, 13, 14, 15, 16, 19]);
-  const cell = (v, i) => typeof v === "number" ? (money.has(i) ? won(v) : n0(v)) : esc(v);
+  const cell = (v, i) => typeof v === "number" ? (/액|부가세/.test(VL_HEAD[i]) ? won(v) : n0(v)) : esc(v);
   return `<div style="overflow-x:auto"><table style="width:100%;min-width:1100px;border-collapse:collapse;font-size:11px"><thead><tr>${VL_HEAD.map(x => `<th style="padding:4px;border-bottom:1px solid #999;text-align:left">${x}</th>`).join("")}</tr></thead><tbody>
     ${c.rows.concat([c.total]).map((a, ri) => `<tr style="${ri === c.rows.length ? "font-weight:700;background:#f4f4f4" : ""}">${vlRow(a).map((v, i) => `<td style="padding:4px;border-bottom:1px solid #ddd;${typeof v === "number" ? "text-align:right" : ""}">${cell(v, i)}</td>`).join("")}</tr>`).join("")}
   </tbody></table></div>`;
@@ -1814,6 +1823,7 @@ function vlSummaryHtml(c) {
     <div><span>부가세 (주문 ${won(t.vat)} + 폐업정산 ${won(t.setVat)})</span><b>${won(t.vat + t.setVat)}</b></div>
     <div><span>공병보증금·공박스보증금 출고 (공병 ${n0(t.outB)}병 · 공박스 ${n0(t.outX)}박스, 비과세)</span><b>${won(t.outBAmt + t.outXAmt)}</b></div>
     <div><span>공병보증금·공박스보증금 반환 (공병 ${n0(t.inB)}병 · 공박스 ${n0(t.inX)}박스, 비과세)</span><b>-${won(t.inBAmt + t.inXAmt)}</b></div>
+    <div><span>초과 회수 (보증금 반환, 비과세) 공병 ${n0(t.exB)}병 · 공박스 ${n0(t.exX)}박스</span><b>-${won(t.exBAmt + t.exXAmt)}</b></div>
     <div><span>거래처 폐업 정산 공병 ${n0(t.setB)}병 · 공박스 ${n0(t.setX)}박스 (${n0(t.setCount)}건, 청구 없음)</span><b>${won(t.setAmt)}</b></div>
     <div class="sum"><span>기말 미회수 공병·공박스보증금 (공병 ${n0(t.balB)}병 · 공박스 ${n0(t.balX)}박스)</span><b>${won(t.balAmt)}</b></div></div>`;
 }
@@ -1885,14 +1895,16 @@ function depositReturn80Html(data, left) {
     ln(esc(r.name), "")
     + (r.bottles ? ln("　공병보증금 반환 " + n0(r.bottles) + "×" + n0(r.bottleDep), n0(r.bottles * r.bottleDep)) : "")
     + (r.boxes ? ln("　공박스보증금 반환 " + n0(r.boxes) + "×" + n0(r.boxDep), n0(r.boxes * r.boxDep)) : "")
+    + (Number(r.excessBottles) || Number(r.excessBoxes) ? `<div style="font-size:11px">　└ 그중 초과 회수 (보증금 반환, 비과세)<br>　　공병 ${n0(r.excessBottles)}병 · 공박스 ${n0(r.excessBoxes)}박스 · ${n0(r.excessAmount)}원</div>` : "")
   ).join("");
+  const exAmt = Number(data.excessAmount) || 0;
   const leftHtml = (left || []).length
     ? left.map(b => ln(esc(b.menuName), "병 " + n0(b.bottles) + " / 박스 " + n0(b.boxes))).join("")
     : "<div>없음</div>";
   return `<div class="rc"><div style="text-align:center"><b style="font-size:20px">공병·공박스 회수</b></div>${hr}
     ${ln("업소", esc(data.userName || u.name || ""))}${ln("일시", depKstTime(data.at))}${ln("기입", esc(data.by || session.name))}${hr}
     ${lines}${hr}
-    <div style="font-size:17px;font-weight:700">${ln("돌려줄 보증금", n0(data.amount) + "원")}</div><div style="font-size:11px">공병·공박스보증금 반환 · 비과세 (공급가액 제외)</div>${hr}
+    <div style="font-size:17px;font-weight:700">${ln("돌려줄 보증금", n0(data.amount) + "원")}</div><div style="font-size:11px">공병·공박스보증금 반환 · 비과세 (공급가액 제외)</div>${exAmt ? ln("초과 회수 (보증금 반환, 비과세)", n0(exAmt) + "원") + `<div style="font-size:11px">미회수 잔량보다 많이 회수된 분입니다. 잔량은 0으로 처리됩니다.</div>` : ""}${data.review ? `<div style="font-weight:700">⚠ 거래처 폐업 정산 이력 업소 · 사장 확인 필요</div>` : ""}${hr}
     <div><b>남은 미회수</b></div>${leftHtml}${hr}
     <div style="text-align:center;margin-top:12px">업소 확인·서명 __________________</div>
     <div style="margin-top:24px;border-top:2px dashed #555;text-align:center;font-size:11px;color:#555">✂ - - - 절취선 - - -</div></div>`;
