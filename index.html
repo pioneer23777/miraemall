@@ -1478,7 +1478,7 @@ function renderDeposit() {
   const liq = db.menus.filter(m => m.status === "active" && isLiquor(m));
   document.getElementById("body").innerHTML = `
     <article class="item"><h3>업소별 미회수</h3>
-      <p class="note" style="margin-top:0">주류 출고(완료) 시 보증금이 쌓이고 실제 회수하면 차감됩니다. 보증금·회수 환급은 비과세(공급가액 제외), 미회수 변상금은 과세 매출로 따로 처리합니다.${depData.error ? " · 오류: " + esc(depData.error) : ""}</p>
+      <p class="note" style="margin-top:0">주류 출고(완료) 시 보증금이 쌓이고 실제 회수하면 차감됩니다. 보증금·회수 환급은 비과세(공급가액 제외), 거래처 폐업으로 회수할 수 없는 보증금만 청구 없이 과세 매출로 신고합니다.${depData.error ? " · 오류: " + esc(depData.error) : ""}</p>
       ${users.length ? users.map(u => `<div style="border-bottom:1px solid #eee;padding:8px 0">
         <b>${esc(u.name)}</b> <small>${esc(showPhone(u.phone))}</small>
         <p>공병 ${n0(u.bottles)} · 공박스 ${n0(u.boxes)} · 보증금 잔액 <b>${won(u.amount)}</b></p>
@@ -1547,7 +1547,7 @@ async function dep2Rpc(name, args) {
 function dep2Error(e) {
   const text=e.message||String(e);
   if (/RETURN_OVER/.test(text)) return '미회수 잔량보다 많습니다. 새로 조회하고 수량을 확인해 주세요.';
-  if (/FORBIDDEN/.test(text)) return '권한이 없습니다. 변상 정산과 기준 변경은 사장만 가능합니다.';
+  if (/FORBIDDEN/.test(text)) return '권한이 없습니다. 거래처 폐업 정산과 기준 변경은 사장만 가능합니다.';
   if (/AUTH/.test(text)) return '로그인을 다시 해 주세요.';
   return text;
 }
@@ -1577,14 +1577,14 @@ function dep2Html() {
     <div class="actions" style="flex-wrap:wrap"><button class="btn primary small" id="d2Query" ${dep2.busy?'disabled':''}>${dep2.busy?'조회 중…':'기간 조회'}</button><button class="btn small" id="d2P80" ${disabled}>80mm 수불대장</button><button class="btn small" id="d2PA4" ${disabled}>A4 수불대장</button></div>
     ${r?`<p><b>조회 결과: ${esc(r.from)} ~ ${esc(r.to)}</b></p>${dep2LedgerHtml(r,false)}`:'<p>기간 조회 후 내역이 표시됩니다.</p>'}
     </article>
-    <article class="item"><h3>장기 미회수 업소</h3><p class="note">마지막 회수일(없으면 첫 미회수 출고일)부터 기준일수를 <b>초과</b>하면 표시합니다. 현재 잔량 기준이며 기간 필터와 무관합니다.</p>
+    <article class="item"><h3>장기 미회수 업소</h3><p class="note">마지막 회수일(없으면 첫 미회수 출고일)부터 기준일수를 <b>초과</b>하면 표시합니다. 현재 잔량 기준이며 기간 필터와 무관합니다. 표시만 하며 자동으로 정산되지 않습니다.</p>
       ${session.role==='boss'?`<div class="row" style="gap:6px"><label>기준 일수<input id="d2Days" type="number" min="1" max="36500" value="${r?r.overdueDays:30}" ${disabled}></label><button class="btn small" id="d2DaysSave" ${disabled}>기준 저장</button></div>`:`<p>기준: ${r?r.overdueDays:30}일 초과</p>`}
       ${r?(r.accounts||[]).map(a=>`<div style="padding:8px 0;border-bottom:1px solid #eee;${a.overdue?'color:#b91c1c':''}"><b>${a.overdue?'⚠ 장기 미회수 · ':''}${esc(a.name)}</b><p>병 ${n0(a.bottles)} / 박스 ${n0(a.boxes)} · ${won(a.amount)}</p><p>마지막 회수: ${a.last_return?depKstDay(a.last_return):'없음'} · 기준일 ${a.anchor?depKstDay(a.anchor):'-'} (${n0(a.ageDays)}일)</p></div>`).join('')||'<p>미회수 잔량 없음</p>':'<p>서버 조회 후 표시됩니다.</p>'}
     </article>
-    ${session.role==='boss'?`<article class="item"><h3>변상 정산 (사장 전용)</h3><p class="note">실제 회수가 아닙니다. 미회수 잔량을 변상 처리하며, 일반 보증금과 따로 기록합니다. <b>변상금은 과세 매출</b>입니다(부가기본통칙 13-48-5 ②). 입력 금액을 부가세 포함 공급대가로 보고 공급가액 = 금액×10/11, 부가세 = 금액 − 공급가액으로 계산합니다.</p>
-      <button class="btn small" id="d2Settle" ${disabled}>업소 선택 · 일부/전체 변상 정산</button></article>`:''}
-    <article class="item"><h3>변상 정산 기록</h3>${r?(r.settlements||[]).map((s,i)=>`<p>${depKstTime(s.at)} · ${esc(s.userName)} · ${won(s.amount)} · ${esc(s.by)}<br>${esc(s.memo)}<br><small>${settleTaxLine(s)}</small> <button class="btn small" data-d2-setprint="${i}">80mm 정산서 재출력</button></p>`).join('')||'<p>선택 기간 내 기록 없음</p>':'<p>기간 조회 후 표시됩니다.</p>'}</article>
-    <article class="item"><h3>일별 회수 내역 내보내기</h3><p class="note">실제로 회수한 내역만 업소별·품목별로 합산합니다. 변상 정산은 제외합니다. 센터 자동 전송이 아닌 내부 확인용 CSV입니다.</p>
+    ${session.role==='boss'?`<article class="item"><h3>거래처 폐업 정산 (사장 전용 · 청구 없이 신고)</h3><p class="note">거래처가 폐업해 공병·공박스를 돌려받을 수 없을 때만 사용합니다. 업소에 추가 청구는 없습니다. 이미 받은 미회수 보증금을 부가세 포함 금액으로 보아 <b>공급가액 = 금액×10/11, 부가세 = 금액 − 공급가액</b>으로 나누고, 정산일의 <b>과세 매출</b>로 신고합니다(부가기본통칙 13-48-5 ②).</p>
+      <button class="btn small" id="d2Settle" ${disabled}>거래처 폐업 정산 (청구 없이 신고)</button></article>`:''}
+    <article class="item"><h3>거래처 폐업 정산 기록</h3>${r?(r.settlements||[]).map((s,i)=>`<p>${depKstTime(s.at)} · ${esc(s.userName)} · 보증금 충당 ${won(s.amount)} · ${esc(s.by)}<br>${esc(s.memo)}<br><small>${settleTaxLine(s)}</small> <button class="btn small" data-d2-setprint="${i}">80mm 정산서 재출력</button></p>`).join('')||'<p>선택 기간 내 기록 없음</p>':'<p>기간 조회 후 표시됩니다.</p>'}</article>
+    <article class="item"><h3>일별 회수 내역 내보내기</h3><p class="note">실제로 회수한 내역만 업소별·품목별로 합산합니다. 폐업 정산은 제외합니다. 센터 자동 전송이 아닌 내부 확인용 CSV입니다.</p>
       <input id="d2Day" type="date" value="${dep2.day}"><div class="actions" style="flex-wrap:wrap"><button class="btn small" id="d2Daily" ${unavailable?'disabled':''}>일별 조회</button><button class="btn small" id="d2Csv" ${dep2.daily?'':'disabled'}>CSV 내려받기</button><button class="btn small" id="d2DailyPrint" ${dep2.daily?'':'disabled'}>A4 출력</button><button class="btn small" id="d2Daily80" ${dep2.daily?'':'disabled'}>80mm 출력</button></div>
       ${dep2.daily?dep2DailyHtml(dep2.daily):''}</article>`;
 }
@@ -1611,12 +1611,12 @@ function dep2LedgerHtml(r, receipt) {
   const rows=dep2LedgerRows(r);
   if(!rows.length) return '<p>해당 기간 내 기록·기초잔량 없음</p>';
   const label=z=>z.kind==='opening'?'기초':z.kind==='closing'?'기말':z.day;
-  if(receipt) return rows.map(z=>`<div style="border-top:1px dashed #777;padding:6px 0;break-inside:avoid"><b>${esc(z.user_name)} / ${esc(z.menu_name)}</b><div>${label(z)}${z.kind==='daily'?` · 출고 ${n0(z.ob)}/${n0(z.ox)}<br>회수 ${n0(z.ib)}/${n0(z.ix)} · 변상 ${n0(z.sb)}/${n0(z.sx)}`:''}</div><div>잔량 ${n0(z.bottles)}/${n0(z.boxes)}<br>보증금 잔액 ${won(z.amount)}</div></div>`).join('');
-  return `<div style="overflow-x:auto"><table style="width:100%;min-width:640px;border-collapse:collapse;font-size:12px"><thead><tr>${['날짜','업소','품목','출고 병/박스','회수 병/박스','변상 병/박스','잔량 병/박스','보증금 잔액'].map(x=>`<th>${x}</th>`).join('')}</tr></thead><tbody>${rows.map(z=>`<tr>${[label(z),esc(z.user_name),esc(z.menu_name),n0(z.ob)+'/'+n0(z.ox),n0(z.ib)+'/'+n0(z.ix),n0(z.sb)+'/'+n0(z.sx),n0(z.bottles)+'/'+n0(z.boxes),won(z.amount)].map(x=>`<td style="padding:5px;border-bottom:1px solid #ddd">${x}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  if(receipt) return rows.map(z=>`<div style="border-top:1px dashed #777;padding:6px 0;break-inside:avoid"><b>${esc(z.user_name)} / ${esc(z.menu_name)}</b><div>${label(z)}${z.kind==='daily'?` · 출고 ${n0(z.ob)}/${n0(z.ox)}<br>회수 ${n0(z.ib)}/${n0(z.ix)} · 폐업정산 ${n0(z.sb)}/${n0(z.sx)}`:''}</div><div>잔량 ${n0(z.bottles)}/${n0(z.boxes)}<br>보증금 잔액 ${won(z.amount)}</div></div>`).join('');
+  return `<div style="overflow-x:auto"><table style="width:100%;min-width:640px;border-collapse:collapse;font-size:12px"><thead><tr>${['날짜','업소','품목','출고 병/박스','회수 병/박스','폐업정산 병/박스','잔량 병/박스','보증금 잔액'].map(x=>`<th>${x}</th>`).join('')}</tr></thead><tbody>${rows.map(z=>`<tr>${[label(z),esc(z.user_name),esc(z.menu_name),n0(z.ob)+'/'+n0(z.ox),n0(z.ib)+'/'+n0(z.ix),n0(z.sb)+'/'+n0(z.sx),n0(z.bottles)+'/'+n0(z.boxes),won(z.amount)].map(x=>`<td style="padding:5px;border-bottom:1px solid #ddd">${x}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
 }
 function dep2PrintLedger(receipt) {
   const r=dep2.report; if(!r) return;
-  doPrint(`<div class="${receipt?'rc':''}"><h3>공병·공박스 수불대장</h3><p>${esc(r.from)} ~ ${esc(r.to)} (KST)<br>수량 단위: 병 / 박스</p>${dep2LedgerHtml(r,receipt)}<p style="font-size:11px">보증금 잔액은 기록 당시 금액의 누계이며 비과세(공급가액 제외)입니다. 변상금은 과세 매출로 별도 정산서·매입·매출 참조.</p></div>`,receipt?'80mm auto':'A4');
+  doPrint(`<div class="${receipt?'rc':''}"><h3>공병·공박스 수불대장</h3><p>${esc(r.from)} ~ ${esc(r.to)} (KST)<br>수량 단위: 병 / 박스</p>${dep2LedgerHtml(r,receipt)}<p style="font-size:11px">보증금 잔액은 기록 당시 금액의 누계이며 비과세(공급가액 제외)입니다. 폐업 정산분은 과세 매출로 정산서·매입·매출 참조.</p></div>`,receipt?'80mm auto':'A4');
 }
 function dep2DailyRows(r) {
   const map=new Map();
@@ -1646,7 +1646,7 @@ function dep2Download() {
   a.href=url; a.download='미래몰_회수내역_'+dep2.daily.from+'.csv'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 function dep2Settlement80(s) {
-  return `<div class="rc"><h3 style="text-align:center">공병·공박스 변상 정산서</h3><div>업소: ${esc(s.userName)}<br>처리일시: ${depKstTime(s.at)}<br>처리자: ${esc(s.by)}<br>정산번호: ${esc(s.id)}</div><hr>${(s.lines||[]).map(z=>`<p><b>${esc(z.name)}</b><br>변상 공병 ${n0(z.bottles)}병 / 공박스 ${n0(z.boxes)}박스${z.amount!=null?`<br>공병·공박스보증금 차감 ${n0(z.amount)}원`:''}</p>`).join('')}<hr>${(()=>{const t=settleTax(s);return `<div class="ln"><span>공급가액</span><span>${n0(t.supply)}</span></div><div class="ln"><span>부가세</span><span>${n0(t.vat)}</span></div><div class="ln" style="font-weight:700"><span>변상 정산금액(합계)</span><span>${n0(t.amount)}원</span></div>`;})()}<p>사유: ${esc(s.memo)}</p><p>과세 매출 (부가기본통칙 13-48-5 ②)<br>증빙: ${esc(evLabel(settleEvidence(s)))}</p><p>실제 회수가 아닌 변상 처리이며<br>해당 수량은 미회수 잔량에서 제외됩니다.</p><div style="margin:22px 0">업소 확인·서명 __________________</div><div style="margin:16px 0">담당자 서명 ____________________</div></div>`;
+  return `<div class="rc"><h3 style="text-align:center">거래처 폐업 공병·공박스보증금 정산서</h3><div style="text-align:center">청구 없이 신고</div><div>업소: ${esc(s.userName)}<br>처리일시: ${depKstTime(s.at)}<br>처리자: ${esc(s.by)}<br>정산번호: ${esc(s.id)}</div><hr>${(s.lines||[]).map(z=>`<p><b>${esc(z.name)}</b><br>정산 공병 ${n0(z.bottles)}병 / 공박스 ${n0(z.boxes)}박스${z.amount!=null?`<br>공병·공박스보증금 차감 ${n0(z.amount)}원`:''}</p>`).join('')}<hr>${(()=>{const t=settleTax(s);return `<div class="ln" style="font-weight:700"><span>보증금 충당액(부가세 포함)</span><span>${n0(t.amount)}원</span></div><div class="ln"><span>공급가액</span><span>${n0(t.supply)}</span></div><div class="ln"><span>부가세</span><span>${n0(t.vat)}</span></div><div class="ln"><span>업소 청구액</span><span>0원 (청구 없음)</span></div>`;})()}<p>사유: ${esc(s.memo)}</p><p>정산일 과세 매출로 신고 (부가기본통칙 13-48-5 ②)<br>증빙: ${esc(evLabel(settleEvidence(s)))}</p><p>거래처 폐업으로 회수가 불가하여 정산하며<br>해당 수량은 미회수 잔량에서 제외됩니다.</p><div style="margin:22px 0">업소 확인·서명 __________________</div><div style="margin:16px 0">담당자 서명 ____________________</div></div>`;
 }
 function dep2AskSettlement() {
   if(session.role!=='boss'||!dep2.report) return;
@@ -1654,12 +1654,14 @@ function dep2AskSettlement() {
   const request=crypto.randomUUID();
   const show=()=>{
     const bal=((depData||{}).balances||[]).filter(z=>z.userId===uid && (z.bottles>0||z.boxes>0));
-    openSheet(`<h2>변상 정산 · 사장 전용</h2><p>과세 매출 · 입력 금액은 부가세 포함 공급대가입니다.<br>증빙: ${esc(evLabel(userEvidence(uid)))}</p><label>업소</label><select id="dsUser">${dep2Options(uid,false)}</select>
-      ${bal.map((z,i)=>`<label>${esc(z.menuName)} · 미회수 병 ${n0(z.bottles)} / 박스 ${n0(z.boxes)}</label><div class="row" style="gap:6px"><input id="dsB${i}" type="number" min="0" max="${z.bottles}" step="1" placeholder="변상 병 수"><input id="dsX${i}" type="number" min="0" max="${z.boxes}" step="1" placeholder="변상 박스 수"></div>`).join('')||'<p>미회수 잔량 없음</p>'}
-      <button class="btn small" id="dsAll">미회수 수량 전체 선택</button><label>변상금액 (원, 부가세 포함)</label><input id="dsAmt" type="number" min="0" step="0.01" placeholder="합의한 변상금액(부가세 포함) 입력"><p id="dsTax" class="note">공급가액 0원 · 부가세 0원</p><label>정산 사유 (필수)</label><input id="dsMemo" maxlength="500" placeholder="예: 분실로 업소와 변상 합의"><button class="btn primary" id="dsSave" ${bal.length?'':'disabled'}>확인 후 정산 저장·80mm 정산서</button>`);
+    openSheet(`<h2>거래처 폐업 정산 · 사장 전용</h2><p>청구 없이 신고만 합니다. 선택한 수량의 보증금을 부가세 포함 금액으로 보아 공급가액과 부가세로 나눕니다.<br>증빙: ${esc(evLabel(userEvidence(uid)))}</p><label>업소</label><select id="dsUser">${dep2Options(uid,false)}</select>
+      ${bal.map((z,i)=>`<label>${esc(z.menuName)} · 미회수 병 ${n0(z.bottles)} / 박스 ${n0(z.boxes)}</label><div class="row" style="gap:6px"><input id="dsB${i}" type="number" min="0" max="${z.bottles}" step="1" placeholder="정산 병 수"><input id="dsX${i}" type="number" min="0" max="${z.boxes}" step="1" placeholder="정산 박스 수"></div>`).join('')||'<p>미회수 잔량 없음</p>'}
+      <button class="btn small" id="dsAll">미회수 수량 전체 선택</button><p id="dsTax" class="note"><b>보증금 충당 0원 → 공급가액 0원 · 부가세 0원 · 청구 없음</b></p><label>정산 사유 (필수)</label><input id="dsMemo" maxlength="500" placeholder="예: 거래처 폐업으로 회수 불가"><button class="btn primary" id="dsSave" ${bal.length?'':'disabled'}>확인 후 정산 저장·80mm 정산서</button>`);
     document.getElementById('dsUser').onchange=e=>{uid=e.target.value; show();};
-    document.getElementById('dsAmt').oninput=e=>{const t=settleTax({amount:Number(e.target.value)||0});document.getElementById('dsTax').textContent='공급가액 '+won(t.supply)+' · 부가세 '+won(t.vat);};
-    document.getElementById('dsAll').onclick=()=>bal.forEach((z,i)=>{document.getElementById('dsB'+i).value=z.bottles;document.getElementById('dsX'+i).value=z.boxes;});
+    const depNow=()=>Math.round(bal.reduce((a,z,i)=>a+(Number(document.getElementById('dsB'+i).value)||0)*(z.bottleDep!=null?Number(z.bottleDep)||0:bottleDepOf(db.menus.find(m=>m.id===z.menuId)))+(Number(document.getElementById('dsX'+i).value)||0)*(z.boxDep!=null?Number(z.boxDep)||0:boxDepOf(db.menus.find(m=>m.id===z.menuId))),0)*100)/100;
+    const preview=()=>{const t=settleTax({amount:depNow()});document.getElementById('dsTax').innerHTML='<b>보증금 충당 '+won(t.amount)+' → 공급가액 '+won(t.supply)+' · 부가세 '+won(t.vat)+' · 청구 없음</b>';};
+    bal.forEach((z,i)=>{document.getElementById('dsB'+i).oninput=preview;document.getElementById('dsX'+i).oninput=preview;});
+    document.getElementById('dsAll').onclick=()=>{bal.forEach((z,i)=>{document.getElementById('dsB'+i).value=z.bottles;document.getElementById('dsX'+i).value=z.boxes;});preview();};
     document.getElementById('dsSave').onclick=async()=>{
       if(dep2.saving) return;
       const items=[];
@@ -1668,12 +1670,11 @@ function dep2AskSettlement() {
         if(!Number.isInteger(b)||!Number.isInteger(x)||b<0||x<0||b>Number(bal[i].bottles)||x>Number(bal[i].boxes)) return alert('미회수 잔량 이내의 정수 수량을 입력해 주세요.');
         if(b||x) items.push({menuId:bal[i].menuId,bottles:b,boxes:x});
       }
-      const field=document.getElementById('dsAmt'), amount=Number(field.value), memo=document.getElementById('dsMemo').value.trim();
-      if(!items.length) return alert('변상 수량을 입력해 주세요.');
-      if(field.value===''||!Number.isFinite(amount)||amount<0||Math.abs(Math.round(amount*100)-amount*100)>0.00001) return alert('변상금액을 정확히 입력해 주세요.');
+      const amount=depNow(), memo=document.getElementById('dsMemo').value.trim();
+      if(!items.length) return alert('정산할 수량을 입력해 주세요.');
       if(!memo) return alert('사유를 입력해 주세요.');
       const u=db.users.find(z=>z.id===uid)||{};
-      if(!confirm(`${u.name||uid}\n${items.map(z=>menuName(z.menuId)+' 병 '+z.bottles+' / 박스 '+z.boxes).join('\n')}\n변상금액 ${won(amount)} (공급가액 ${won(settleTax({amount}).supply)} · 부가세 ${won(settleTax({amount}).vat)})\n이 수량은 회수가 아닌 변상으로 잔량에서 빠집니다. 확정할까요?`)) return;
+      if(!confirm(`${u.name||uid}\n${items.map(z=>menuName(z.menuId)+' 병 '+z.bottles+' / 박스 '+z.boxes).join('\n')}\n보증금 충당 ${won(amount)} (공급가액 ${won(settleTax({amount}).supply)} · 부가세 ${won(settleTax({amount}).vat)})\n업소 청구 없음 · 정산일 과세 매출로 신고\n이 수량은 미회수 잔량에서 빠집니다. 확정할까요?`)) return;
       dep2.saving=true; const btn=document.getElementById('dsSave'); btn.disabled=true;
       try {
         const s=await dep2Rpc('mm_deposit_settle',{p_user:uid,p_items:items,p_amount:amount,p_memo:memo,p_request:request});
@@ -1721,7 +1722,7 @@ function dep2Bind() {
 
 /* ===== 매입·매출 (사장 전용) =====
    공병·공박스 보증금·회수 환급: 비과세, 공급가액 제외 (부가세법 시행령 제61조제2항, 부가기본통칙 13-48-5 ①)
-   미회수 변상금: 과세 매출 (통칙 13-48-5 ②), 부가세 포함 공급대가 → 공급가액 = round(금액×10/11) */
+   거래처 폐업 정산(청구 없이 신고): 미회수 보증금을 부가세 포함 금액으로 보아 공급가액 = round(금액×10/11), 정산일 과세 매출 (통칙 13-48-5 ②) */
 function settleTax(s) {
   const amount = Number(s && s.amount) || 0;
   if (s && s.supply != null && s.vat != null) return { amount, supply: Number(s.supply) || 0, vat: Number(s.vat) || 0 };
@@ -1737,7 +1738,7 @@ function userEvidence(uid) {
 }
 function settleEvidence(s) { return s && s.evidence && s.evidence.type ? s.evidence : userEvidence(s && s.userId); }
 function evLabel(e) { return e && e.type && e.type !== "none" ? evText(e) : "미정 (업소와 확인 필요)"; }
-function settleTaxLine(s) { const t = settleTax(s); return `과세 매출 · 공급가액 ${won(t.supply)} · 부가세 ${won(t.vat)} · 증빙 ${esc(evLabel(settleEvidence(s)))}`; }
+function settleTaxLine(s) { const t = settleTax(s); return `거래처 폐업 · 청구 없이 신고 · 과세 매출 공급가액 ${won(t.supply)} · 부가세 ${won(t.vat)} · 증빙 ${esc(evLabel(settleEvidence(s)))}`; }
 
 const vl = { mode: "quarter", qYear: 0, q: 1, monthFrom: "", monthTo: "", from: "", to: "", report: null, busy: false, error: "", missing: false, key: "" };
 const VL_NUM = ["orders", "supply", "vat", "outB", "outBAmt", "outX", "outXAmt", "inB", "inBAmt", "inX", "inXAmt", "setB", "setX", "setCount", "setAmt", "setSupply", "setVat", "balB", "balX", "balAmt"];
@@ -1789,11 +1790,11 @@ function vlCompute(r, from, to) {
 function vlEvText(a) {
   const p = [];
   if (a.ev.tax) p.push("세금계산서 " + a.ev.tax + "건"); if (a.ev.cash) p.push("현금영수증 " + a.ev.cash + "건"); if (a.ev.none) p.push("필요없음 " + a.ev.none + "건");
-  if (a.setEv) p.push("변상: " + evLabel(a.setEv));
+  if (a.setEv) p.push("폐업정산: " + evLabel(a.setEv));
   return p.join(" · ") || "-";
 }
 const VL_HEAD = ["업소", "사업자번호", "주문 과세 공급가액", "주문 부가세", "공병 출고(병)", "공병보증금 출고액(비과세)", "공박스 출고(박스)", "공박스보증금 출고액(비과세)",
-  "공병 회수(병)", "공병보증금 반환액(비과세)", "공박스 회수(박스)", "공박스보증금 반환액(비과세)", "변상 과세 공급가액", "변상 부가세", "변상 합계", "과세매출 공급가액 합계", "부가세 합계",
+  "공병 회수(병)", "공병보증금 반환액(비과세)", "공박스 회수(박스)", "공박스보증금 반환액(비과세)", "폐업정산 공급가액", "폐업정산 부가세", "폐업정산 보증금 충당액(청구 없음)", "과세매출 공급가액 합계", "부가세 합계",
   "미회수 공병(병)", "미회수 공박스(박스)", "미회수 공병·공박스보증금 잔액", "증빙"];
 function vlRow(a) {
   return [a.name, a.bizNo ? fmtBizNo(a.bizNo) : "", a.supply, a.vat, a.outB, a.outBAmt, a.outX, a.outXAmt, a.inB, a.inBAmt, a.inX, a.inXAmt,
@@ -1809,14 +1810,14 @@ function vlTableHtml(c) {
 function vlSummaryHtml(c) {
   const t = c.total;
   return `<div class="totals">
-    <div><span>과세 매출 공급가액 (주문 ${won(t.supply)} + 변상 ${won(t.setSupply)})</span><b>${won(t.supply + t.setSupply)}</b></div>
-    <div><span>부가세 (주문 ${won(t.vat)} + 변상 ${won(t.setVat)})</span><b>${won(t.vat + t.setVat)}</b></div>
+    <div><span>과세 매출 공급가액 (주문 ${won(t.supply)} + 폐업정산 ${won(t.setSupply)})</span><b>${won(t.supply + t.setSupply)}</b></div>
+    <div><span>부가세 (주문 ${won(t.vat)} + 폐업정산 ${won(t.setVat)})</span><b>${won(t.vat + t.setVat)}</b></div>
     <div><span>공병보증금·공박스보증금 출고 (공병 ${n0(t.outB)}병 · 공박스 ${n0(t.outX)}박스, 비과세)</span><b>${won(t.outBAmt + t.outXAmt)}</b></div>
     <div><span>공병보증금·공박스보증금 반환 (공병 ${n0(t.inB)}병 · 공박스 ${n0(t.inX)}박스, 비과세)</span><b>-${won(t.inBAmt + t.inXAmt)}</b></div>
-    <div><span>변상 처리 공병 ${n0(t.setB)}병 · 공박스 ${n0(t.setX)}박스 (${n0(t.setCount)}건)</span><b>${won(t.setAmt)}</b></div>
+    <div><span>거래처 폐업 정산 공병 ${n0(t.setB)}병 · 공박스 ${n0(t.setX)}박스 (${n0(t.setCount)}건, 청구 없음)</span><b>${won(t.setAmt)}</b></div>
     <div class="sum"><span>기말 미회수 공병·공박스보증금 (공병 ${n0(t.balB)}병 · 공박스 ${n0(t.balX)}박스)</span><b>${won(t.balAmt)}</b></div></div>`;
 }
-const VL_LAW = "공병보증금·공박스보증금과 그 반환은 반환조건부 용기대금으로 공급가액에서 제외되며 부가세가 없습니다(부가가치세법 시행령 제61조제2항, 부가기본통칙 13-48-5 ①). 미회수로 받은 변상금은 과세 공급이며(통칙 13-48-5 ②), 변상금액을 부가세 포함 공급대가로 보아 공급가액 = 금액×10/11, 부가세 = 금액 − 공급가액으로 계산합니다. 주문 매출은 '완료' 주문, 완료일 기준(한국시간)입니다.";
+const VL_LAW = "공병보증금·공박스보증금과 그 반환은 반환조건부 용기대금으로 공급가액에서 제외되며 부가세가 없습니다(부가가치세법 시행령 제61조제2항, 부가기본통칙 13-48-5 ①). 거래처 폐업으로 회수할 수 없는 보증금은 청구 없이 정산일에 과세 공급으로 신고하며(통칙 13-48-5 ②), 보증금을 부가세 포함 금액으로 보아 공급가액 = 금액×10/11, 부가세 = 금액 − 공급가액으로 계산합니다. 주문 매출은 '완료' 주문, 완료일 기준(한국시간)입니다.";
 function vlLoad() {
   const key = vl.from + "~" + vl.to;
   if (vl.busy || vl.key === key) return;
