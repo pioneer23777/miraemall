@@ -592,6 +592,7 @@ function render() {
   if (tab === "hometax") renderHometax();
   if (tab === "stock") renderStock();
   if (tab === "deposit") renderDeposit();
+  if (tab === "vat") renderVatLedger();
   if (cat === "notice" || cat === "event") renderBoard();
 }
 // Q/A 안내 문구: 전화번호 추가 시 여기만 고치면 됩니다.
@@ -636,11 +637,11 @@ function renderTabs() {
     ? [["order", "발주"], ["cart", "장바구니"], ["mine", "내 주문"]]
     : session.role === "staff"
       ? [["orders", "주문내역"], ["menu", "메뉴관리"], ["joins", "가입승인"], ["board", "글관리"], ["hometax", "현금영수증"], ["stock", "재고"], ["deposit", "공병회수"]]
-      : [["orders", "주문내역"], ["menu", "메뉴관리"], ["approve", "승인"], ["board", "글관리"], ["hometax", "현금영수증"], ["stock", "재고"], ["deposit", "공병회수"]];
+      : [["orders", "주문내역"], ["menu", "메뉴관리"], ["approve", "승인"], ["board", "글관리"], ["hometax", "현금영수증"], ["stock", "재고"], ["deposit", "공병회수"], ["vat", "매입·매출"]];
   document.getElementById("tabs").innerHTML = tabs.map(([id, name]) =>
     `<button class="tab ${tab === id ? "on" : ""}" data-tab="${id}">${name}</button>`
   ).join("");
-  document.querySelectorAll(".tab").forEach(b => b.onclick = () => { tab = b.dataset.tab; if (tab === "stock") { stockData = null; spCache.key = ""; } if (tab === "deposit") { depData = null; dep2.loaded = false; dep2.report = null; dep2.daily = null; } render(); });
+  document.querySelectorAll(".tab").forEach(b => b.onclick = () => { tab = b.dataset.tab; if (tab === "stock") { stockData = null; spCache.key = ""; } if (tab === "deposit") { depData = null; dep2.loaded = false; dep2.report = null; dep2.daily = null; } if (tab === "vat") { vl.report = null; vl.key = ""; } render(); });
 }
 function photoBlock(m) {
   if (m.photo) return `<img src="${m.photo}" alt="" />`;
@@ -744,7 +745,7 @@ function renderCart() {
   const pay = Math.max(orderPrice - retAmt, 0);
   const outMenus = db.menus.filter(m => m.status === "active" && isLiquor(m) && (outstandingOf(m.id).bottles > 0 || outstandingOf(m.id).boxes > 0 || cartReturn[m.id]));
   const retHtml = cart.length ? `<article class="item"><h3>회수상품</h3>
-    <p class="note" style="margin-top:0">미회수 잔량 이하로만 입력됩니다. 보증금은 부가세 없이 차감됩니다.${depData && depData.error ? " (잔량 조회 실패 — 서버 SQL 적용 전일 수 있음)" : ""}</p>
+    <p class="note" style="margin-top:0">미회수 잔량 이하로만 입력됩니다. 공병·공박스 보증금은 비과세(공급가액 제외)라 부가세 없이 차감되고, 매입·매출 내역에 따로 표시됩니다.${depData && depData.error ? " (잔량 조회 실패 — 서버 SQL 적용 전일 수 있음)" : ""}</p>
     ${outMenus.length ? outMenus.map(m => { const o = outstandingOf(m.id); const v = cartReturn[m.id] || { bottles: "", boxes: "" };
       return `<div style="border-bottom:1px solid #eee;padding:6px 0"><b>${esc(m.name)}</b> <small>미회수 공병 ${n0(o.bottles)} · 공박스 ${n0(o.boxes)}</small>
         <div class="row" style="gap:6px;margin-top:4px"><label style="flex:1">공병<input type="number" min="0" max="${o.bottles}" data-rb="${m.id}" value="${v.bottles}" style="margin:0" /></label>
@@ -767,8 +768,8 @@ function renderCart() {
         <div><span>공급가</span><b>${won(supply)}</b></div>
         <div><span>부가세</span><b>${won(vat)}</b></div>
         <div><span>포인트 사용</span><b>-${won(used)}</b></div>
-        ${deposit ? `<div><span>주류 보증금</span><b>${won(deposit)}</b></div>` : ""}
-        ${retAmt ? `<div><span>회수상품 차감</span><b>-${won(retAmt)}</b></div>` : ""}
+        ${deposit ? `<div><span>공병·공박스 보증금 (비과세)</span><b>${won(deposit)}</b></div>` : ""}
+        ${retAmt ? `<div><span>회수상품 차감 (비과세)</span><b>-${won(retAmt)}</b></div>` : ""}
         ${earn ? `<div><span>적립 예정</span><b>${pt(earn)}</b></div>` : ""}
         <div><span>주문가격</span><b>${won(orderPrice)}</b></div>
         <div class="sum"><span>실제결제금액</span><b>${won(pay)}</b></div>
@@ -829,7 +830,7 @@ function renderCart() {
         <div><span>공급가</span><b>${won(supply)}</b></div>
         <div><span>부가세</span><b>${won(vat)}</b></div>
         <div><span>포인트 사용</span><b>-${won(used)}</b></div>
-        ${deposit ? `<div><span>주류 보증금</span><b>${won(deposit)}</b></div>` : ""}
+        ${deposit ? `<div><span>공병·공박스 보증금 (비과세)</span><b>${won(deposit)}</b></div>` : ""}
         ${retNow ? `<div><span>회수상품 차감</span><b>-${won(retNow)}</b></div>` : ""}
         <div><span>주문가격</span><b>${won(orderPrice)}</b></div>
         <div class="sum"><span>실제결제금액</span><b>${won(pay)}</b></div>
@@ -881,7 +882,7 @@ function renderMine() {
     const ret = (o.returns || []).map(r => `회수 ${esc(r.name)} 공병${n0(r.bottles)}/박스${n0(r.boxes)}`).join(", ");
     return `<article class="item"><h3>${won(mny.pay)} <span class="badge ${o.status === "완료" ? "ok" : ""}">${esc(o.status)}</span></h3>
       <p>${esc(o.items.map(i => i.name + " " + i.qty).join(", "))}</p>
-      <p>${mny.dep ? "주류보증금 " + won(mny.dep) + " · " : ""}${mny.rt ? "회수차감 -" + won(mny.rt) + " · " : ""}주문가격 ${won(mny.orderPrice)} · 실제결제 ${won(mny.pay)}</p>
+      <p>${mny.dep ? "보증금(비과세) " + won(mny.dep) + " · " : ""}${mny.rt ? "회수차감(비과세) -" + won(mny.rt) + " · " : ""}주문가격 ${won(mny.orderPrice)} · 실제결제 ${won(mny.pay)}</p>
       ${ret ? `<p>${ret}</p>` : ""}
       <p>${when(o.at)}${o.earn ? " · 적립 " + pt(o.earn) : ""}</p></article>`; }).join("")}</div>`
     : `<div class="empty">아직 발주한 내역이 없습니다.</div>`;
@@ -893,7 +894,7 @@ function renderOrders() {
       const ret = (o.returns || []).map(r => `회수 ${esc(r.name)} 공병${n0(r.bottles)}/박스${n0(r.boxes)}`).join(", ");
       return `<article class="item"><h3><input type="checkbox" data-pick="${o.id}" ${printPick.has(o.id) ? "checked" : ""} style="width:auto;margin:0 6px 0 0" />${esc(o.name)} · ${won(mny.pay)} <span class="badge ${o.status === "완료" ? "ok" : ""}">${esc(o.status)}</span></h3>
         <p>${esc(o.items.map(i => i.name + " " + i.qty).join(", "))}</p>
-        <p>${mny.dep ? "주류보증금 " + won(mny.dep) + " · " : ""}${mny.rt ? "회수차감 -" + won(mny.rt) + " · " : ""}주문가격 ${won(mny.orderPrice)} · 실제결제 ${won(mny.pay)}</p>
+        <p>${mny.dep ? "보증금(비과세) " + won(mny.dep) + " · " : ""}${mny.rt ? "회수차감(비과세) -" + won(mny.rt) + " · " : ""}주문가격 ${won(mny.orderPrice)} · 실제결제 ${won(mny.pay)}</p>
         ${ret ? `<p>${ret}</p>` : ""}
         <p>${when(o.at)} · ${esc(showPhone(o.phone))}</p>
         <div class="actions">
@@ -977,7 +978,7 @@ function doPrint(html, size) {
   document.getElementById("printArea").innerHTML = html;
   let pg = document.getElementById("printPage");
   if (!pg) { pg = document.createElement("style"); pg.id = "printPage"; document.head.appendChild(pg); }
-  pg.textContent = "@page{size:" + size + ";margin:" + (size === "A4" ? "12mm" : "3mm") + "}";
+  pg.textContent = "@page{size:" + size + ";margin:" + (String(size).startsWith("A4") ? "10mm" : "3mm") + "}";
   setTimeout(() => window.print(), 50);
 }
 function receiptHtml(o) {
@@ -1002,9 +1003,10 @@ function receiptHtml(o) {
     ${ln("품목", "금액")}${items}${hr}
     ${rets ? rets + hr : ""}
     ${ln("공급가", n0(o.supply))}${ln("부가세(10%)", n0(o.vat))}${ln("포인트 사용", "-" + n0(o.used))}
-    ${mny.dep ? ln("주류 보증금", n0(mny.dep)) : ""}${mny.rt ? ln("회수상품 차감", "-" + n0(mny.rt)) : ""}
+    ${mny.dep ? ln("보증금(비과세)", n0(mny.dep)) : ""}${mny.rt ? ln("회수상품 차감(비과세)", "-" + n0(mny.rt)) : ""}
     ${ln("주문가격", n0(mny.orderPrice) + "원")}
     <div style="font-size:17px;font-weight:700">${ln("실제결제금액", n0(mny.pay) + "원")}</div>${hr}
+    ${mny.dep || mny.rt ? `<div style="font-size:11px">※ 공병·공박스 보증금과 회수 환급은 비과세(공급가액 제외, 부가세 없음)입니다.</div>${hr}` : ""}
     <div>입금: 국민 000000-00-000000<br>예금주 미래몰</div>
     <div style="text-align:center;margin-top:8px">□ 출고확인</div>
     ${rets ? '<div style="margin-top:18px">회수 확인 · 업소 서명 __________________</div>' : ""}
@@ -1022,7 +1024,7 @@ function multiHtml(set) {
       const retRows = (o.returns || []).map(r => `<tr><td>회수 ${esc(r.name)}</td><td class="r">${n0(r.bottles)}병/${n0(r.boxes)}박스</td><td class="r">차감</td><td class="r">-${won(r.amount)}</td></tr>`).join("");
       return `<div class="ob"><div style="display:flex;justify-content:space-between;font-size:13px"><b>${esc(o.name)} (${esc(showPhone(o.phone))})</b><span>주문번호 ${orderNo(o)} · ${hm(o.at)}</span><span><span class="box"></span> 출고확인</span></div>
       <table style="margin-top:5px"><tr><th>품목</th><th>수량</th><th>단가</th><th>금액</th></tr>${rows}${retRows}</table>
-      <div class="r" style="font-size:12px;margin-top:4px">공급가 ${won(o.supply)} · 부가세 ${won(o.vat)} · 포인트 -${pt(o.used)}${mny.dep ? " · 주류보증금 " + won(mny.dep) : ""}${mny.rt ? " · 회수차감 -" + won(mny.rt) : ""} · 주문가격 ${won(mny.orderPrice)} · <b>실제결제 ${won(mny.pay)}</b></div>${retRows ? '<div style="font-size:12px;margin-top:10px">회수 확인 · 업소 서명 __________________</div>' : ""}</div>`; }).join("") +
+      <div class="r" style="font-size:12px;margin-top:4px">공급가 ${won(o.supply)} · 부가세 ${won(o.vat)} · 포인트 -${pt(o.used)}${mny.dep ? " · 공병·박스 보증금(비과세) " + won(mny.dep) : ""}${mny.rt ? " · 회수차감(비과세) -" + won(mny.rt) : ""} · 주문가격 ${won(mny.orderPrice)} · <b>실제결제 ${won(mny.pay)}</b></div>${retRows ? '<div style="font-size:12px;margin-top:10px">회수 확인 · 업소 서명 __________________</div>' : ""}</div>`; }).join("") +
     `<div style="font-size:11px;margin-top:10px">입금계좌: 국민 000000-00-000000 예금주 미래몰 · 출고담당 ______ 서명 ______</div>`;
 }
 function printMulti() { const set = printSet(); if (!set.length) return alert("출력할 주문이 없습니다."); doPrint(multiHtml(set), "A4"); }
@@ -1091,7 +1093,7 @@ function renderMenuAdmin() {
 }
 function askDeposit(menuId) {
   const m = db.menus.find(x => x.id === menuId);
-  openSheet(`<h2>주류 보증금 설정</h2><p class="sub">${esc(m.name)} · 판매가는 0원 유지, 보증금은 부가세 없음</p>
+  openSheet(`<h2>주류 보증금 설정</h2><p class="sub">${esc(m.name)} · 판매가는 0원 유지, 공병·공박스 보증금은 비과세(공급가액 제외)·부가세 없음</p>
     <label>박스당 병 수</label><input id="fBpp" type="number" min="0" value="${bppOf(m)}" />
     <label>공병 개당 보증금(원)</label><input id="fBdep" type="number" min="0" value="${bottleDepOf(m)}" />
     <label>공박스 보증금(원)</label><input id="fXdep" type="number" min="0" value="${boxDepOf(m)}" />
@@ -1476,7 +1478,7 @@ function renderDeposit() {
   const liq = db.menus.filter(m => m.status === "active" && isLiquor(m));
   document.getElementById("body").innerHTML = `
     <article class="item"><h3>업소별 미회수</h3>
-      <p class="note" style="margin-top:0">주류 출고(완료) 시 보증금이 쌓이고 실제 회수하면 차감됩니다. 일반 보증금과 변상금은 별도로 처리합니다.${depData.error ? " · 오류: " + esc(depData.error) : ""}</p>
+      <p class="note" style="margin-top:0">주류 출고(완료) 시 보증금이 쌓이고 실제 회수하면 차감됩니다. 보증금·회수 환급은 비과세(공급가액 제외), 미회수 변상금은 과세 매출로 따로 처리합니다.${depData.error ? " · 오류: " + esc(depData.error) : ""}</p>
       ${users.length ? users.map(u => `<div style="border-bottom:1px solid #eee;padding:8px 0">
         <b>${esc(u.name)}</b> <small>${esc(showPhone(u.phone))}</small>
         <p>공병 ${n0(u.bottles)} · 공박스 ${n0(u.boxes)} · 잔액 <b>${won(u.amount)}</b></p>
@@ -1576,12 +1578,12 @@ function dep2Html() {
     ${r?`<p><b>조회 결과: ${esc(r.from)} ~ ${esc(r.to)}</b></p>${dep2LedgerHtml(r,false)}`:'<p>기간 조회 후 내역이 표시됩니다.</p>'}
     </article>
     <article class="item"><h3>장기 미회수 업소</h3><p class="note">마지막 회수일(없으면 첫 미회수 출고일)부터 기준일수를 <b>초과</b>하면 표시합니다. 현재 잔량 기준이며 기간 필터와 무관합니다.</p>
-      ${session.role==='boss'?`<div class="row" style="gap:6px"><label>기준 일수<input id="d2Days" type="number" min="1" max="36500" value="${r?r.overdueDays:60}" ${disabled}></label><button class="btn small" id="d2DaysSave" ${disabled}>기준 저장</button></div>`:`<p>기준: ${r?r.overdueDays:60}일 초과</p>`}
+      ${session.role==='boss'?`<div class="row" style="gap:6px"><label>기준 일수<input id="d2Days" type="number" min="1" max="36500" value="${r?r.overdueDays:30}" ${disabled}></label><button class="btn small" id="d2DaysSave" ${disabled}>기준 저장</button></div>`:`<p>기준: ${r?r.overdueDays:30}일 초과</p>`}
       ${r?(r.accounts||[]).map(a=>`<div style="padding:8px 0;border-bottom:1px solid #eee;${a.overdue?'color:#b91c1c':''}"><b>${a.overdue?'⚠ 장기 미회수 · ':''}${esc(a.name)}</b><p>병 ${n0(a.bottles)} / 박스 ${n0(a.boxes)} · ${won(a.amount)}</p><p>마지막 회수: ${a.last_return?depKstDay(a.last_return):'없음'} · 기준일 ${a.anchor?depKstDay(a.anchor):'-'} (${n0(a.ageDays)}일)</p></div>`).join('')||'<p>미회수 잔량 없음</p>':'<p>서버 조회 후 표시됩니다.</p>'}
     </article>
-    ${session.role==='boss'?`<article class="item"><h3>변상 정산 (사장 전용)</h3><p class="note">실제 회수가 아닙니다. 미회수 잔량을 변상 처리하며, 일반 보증금과 따로 기록합니다. <b>부가세 대상 가능, 세금계산서 대상</b> · 세무사 확인 필요. 부가세 자동계산·발행은 하지 않습니다.</p>
+    ${session.role==='boss'?`<article class="item"><h3>변상 정산 (사장 전용)</h3><p class="note">실제 회수가 아닙니다. 미회수 잔량을 변상 처리하며, 일반 보증금과 따로 기록합니다. <b>변상금은 과세 매출</b>입니다(부가기본통칙 13-48-5 ②). 입력 금액을 부가세 포함 공급대가로 보고 공급가액 = 금액×10/11, 부가세 = 금액 − 공급가액으로 계산합니다.</p>
       <button class="btn small" id="d2Settle" ${disabled}>업소 선택 · 일부/전체 변상 정산</button></article>`:''}
-    <article class="item"><h3>변상 정산 기록</h3>${r?(r.settlements||[]).map((s,i)=>`<p>${depKstTime(s.at)} · ${esc(s.userName)} · ${won(s.amount)} · ${esc(s.by)}<br>${esc(s.memo)}<br><small>부가세 대상 가능, 세금계산서 대상</small> <button class="btn small" data-d2-setprint="${i}">80mm 정산서 재출력</button></p>`).join('')||'<p>선택 기간 내 기록 없음</p>':'<p>기간 조회 후 표시됩니다.</p>'}</article>
+    <article class="item"><h3>변상 정산 기록</h3>${r?(r.settlements||[]).map((s,i)=>`<p>${depKstTime(s.at)} · ${esc(s.userName)} · ${won(s.amount)} · ${esc(s.by)}<br>${esc(s.memo)}<br><small>${settleTaxLine(s)}</small> <button class="btn small" data-d2-setprint="${i}">80mm 정산서 재출력</button></p>`).join('')||'<p>선택 기간 내 기록 없음</p>':'<p>기간 조회 후 표시됩니다.</p>'}</article>
     <article class="item"><h3>일별 회수 내역 내보내기</h3><p class="note">실제로 회수한 내역만 업소별·품목별로 합산합니다. 변상 정산은 제외합니다. 센터 자동 전송이 아닌 내부 확인용 CSV입니다.</p>
       <input id="d2Day" type="date" value="${dep2.day}"><div class="actions" style="flex-wrap:wrap"><button class="btn small" id="d2Daily" ${unavailable?'disabled':''}>일별 조회</button><button class="btn small" id="d2Csv" ${dep2.daily?'':'disabled'}>CSV 내려받기</button><button class="btn small" id="d2DailyPrint" ${dep2.daily?'':'disabled'}>A4 출력</button><button class="btn small" id="d2Daily80" ${dep2.daily?'':'disabled'}>80mm 출력</button></div>
       ${dep2.daily?dep2DailyHtml(dep2.daily):''}</article>`;
@@ -1614,7 +1616,7 @@ function dep2LedgerHtml(r, receipt) {
 }
 function dep2PrintLedger(receipt) {
   const r=dep2.report; if(!r) return;
-  doPrint(`<div class="${receipt?'rc':''}"><h3>공병·공박스 수불대장</h3><p>${esc(r.from)} ~ ${esc(r.to)} (KST)<br>수량 단위: 병 / 박스</p>${dep2LedgerHtml(r,receipt)}<p style="font-size:11px">보증금 잔액은 기록 당시 금액의 누계입니다. 변상금은 별도 정산서 참조.</p></div>`,receipt?'80mm auto':'A4');
+  doPrint(`<div class="${receipt?'rc':''}"><h3>공병·공박스 수불대장</h3><p>${esc(r.from)} ~ ${esc(r.to)} (KST)<br>수량 단위: 병 / 박스</p>${dep2LedgerHtml(r,receipt)}<p style="font-size:11px">보증금 잔액은 기록 당시 금액의 누계이며 비과세(공급가액 제외)입니다. 변상금은 과세 매출로 별도 정산서·매입·매출 참조.</p></div>`,receipt?'80mm auto':'A4');
 }
 function dep2DailyRows(r) {
   const map=new Map();
@@ -1635,7 +1637,7 @@ function dep2DailyHtml(r,receipt) {
 }
 function dep2CsvText(r) {
   const safe=v=>{let s=String(v==null?'':v); if(typeof v==='string' && /^[\s]*[=+\-@\t\r]/.test(s)) s="'"+s; return '"'+s.replace(/"/g,'""')+'"';};
-  const rows=[['회수일(KST)','업소ID','업소명','품목ID','품목명','회수병수','회수박스수','반환금액(원)'],...dep2DailyRows(r).map(z=>[z.day,z.userId,z.userName,z.menuId,z.menuName,z.bottles,z.boxes,z.amount])];
+  const rows=[['회수일(KST)','업소ID','업소명','품목ID','품목명','회수병수','회수박스수','반환금액(원·비과세)'],...dep2DailyRows(r).map(z=>[z.day,z.userId,z.userName,z.menuId,z.menuName,z.bottles,z.boxes,z.amount])];
   return '\uFEFF'+rows.map(row=>row.map(safe).join(',')).join('\r\n')+'\r\n';
 }
 function dep2Download() {
@@ -1644,7 +1646,7 @@ function dep2Download() {
   a.href=url; a.download='미래몰_회수내역_'+dep2.daily.from+'.csv'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 function dep2Settlement80(s) {
-  return `<div class="rc"><h3 style="text-align:center">공병·공박스 변상 정산서</h3><div>업소: ${esc(s.userName)}<br>처리일시: ${depKstTime(s.at)}<br>처리자: ${esc(s.by)}<br>정산번호: ${esc(s.id)}</div><hr>${(s.lines||[]).map(z=>`<p><b>${esc(z.name)}</b><br>변상 공병 ${n0(z.bottles)} / 공박스 ${n0(z.boxes)}</p>`).join('')}<hr><b>변상 정산금액: ${won(s.amount)}</b><p>사유: ${esc(s.memo)}</p><p>부가세 대상 가능, 세금계산서 대상<br>세무사 확인 필요<br>부가세 자동계산·발행 안 함</p><p>실제 회수가 아닌 변상 처리이며<br>해당 수량은 미회수 잔량에서 제외됩니다.</p><div style="margin:22px 0">업소 확인·서명 __________________</div><div style="margin:16px 0">담당자 서명 ____________________</div></div>`;
+  return `<div class="rc"><h3 style="text-align:center">공병·공박스 변상 정산서</h3><div>업소: ${esc(s.userName)}<br>처리일시: ${depKstTime(s.at)}<br>처리자: ${esc(s.by)}<br>정산번호: ${esc(s.id)}</div><hr>${(s.lines||[]).map(z=>`<p><b>${esc(z.name)}</b><br>변상 공병 ${n0(z.bottles)} / 공박스 ${n0(z.boxes)}</p>`).join('')}<hr>${(()=>{const t=settleTax(s);return `<div class="ln"><span>공급가액</span><span>${n0(t.supply)}</span></div><div class="ln"><span>부가세</span><span>${n0(t.vat)}</span></div><div class="ln" style="font-weight:700"><span>변상 정산금액(합계)</span><span>${n0(t.amount)}원</span></div>`;})()}<p>사유: ${esc(s.memo)}</p><p>과세 매출 (부가기본통칙 13-48-5 ②)<br>증빙: ${esc(evLabel(settleEvidence(s)))}</p><p>실제 회수가 아닌 변상 처리이며<br>해당 수량은 미회수 잔량에서 제외됩니다.</p><div style="margin:22px 0">업소 확인·서명 __________________</div><div style="margin:16px 0">담당자 서명 ____________________</div></div>`;
 }
 function dep2AskSettlement() {
   if(session.role!=='boss'||!dep2.report) return;
@@ -1652,10 +1654,11 @@ function dep2AskSettlement() {
   const request=crypto.randomUUID();
   const show=()=>{
     const bal=((depData||{}).balances||[]).filter(z=>z.userId===uid && (z.bottles>0||z.boxes>0));
-    openSheet(`<h2>변상 정산 · 사장 전용</h2><p>부가세 대상 가능, 세금계산서 대상 · 세무사 확인 필요</p><label>업소</label><select id="dsUser">${dep2Options(uid,false)}</select>
+    openSheet(`<h2>변상 정산 · 사장 전용</h2><p>과세 매출 · 입력 금액은 부가세 포함 공급대가입니다.<br>증빙: ${esc(evLabel(userEvidence(uid)))}</p><label>업소</label><select id="dsUser">${dep2Options(uid,false)}</select>
       ${bal.map((z,i)=>`<label>${esc(z.menuName)} · 미회수 병 ${n0(z.bottles)} / 박스 ${n0(z.boxes)}</label><div class="row" style="gap:6px"><input id="dsB${i}" type="number" min="0" max="${z.bottles}" step="1" placeholder="변상 병 수"><input id="dsX${i}" type="number" min="0" max="${z.boxes}" step="1" placeholder="변상 박스 수"></div>`).join('')||'<p>미회수 잔량 없음</p>'}
-      <button class="btn small" id="dsAll">미회수 수량 전체 선택</button><label>변상금액 (원, 부가세 자동계산 없음)</label><input id="dsAmt" type="number" min="0" step="0.01" placeholder="합의한 변상금액 직접 입력"><label>정산 사유 (필수)</label><input id="dsMemo" maxlength="500" placeholder="예: 분실로 업소와 변상 합의"><button class="btn primary" id="dsSave" ${bal.length?'':'disabled'}>확인 후 정산 저장·80mm 정산서</button>`);
+      <button class="btn small" id="dsAll">미회수 수량 전체 선택</button><label>변상금액 (원, 부가세 포함)</label><input id="dsAmt" type="number" min="0" step="0.01" placeholder="합의한 변상금액(부가세 포함) 입력"><p id="dsTax" class="note">공급가액 0원 · 부가세 0원</p><label>정산 사유 (필수)</label><input id="dsMemo" maxlength="500" placeholder="예: 분실로 업소와 변상 합의"><button class="btn primary" id="dsSave" ${bal.length?'':'disabled'}>확인 후 정산 저장·80mm 정산서</button>`);
     document.getElementById('dsUser').onchange=e=>{uid=e.target.value; show();};
+    document.getElementById('dsAmt').oninput=e=>{const t=settleTax({amount:Number(e.target.value)||0});document.getElementById('dsTax').textContent='공급가액 '+won(t.supply)+' · 부가세 '+won(t.vat);};
     document.getElementById('dsAll').onclick=()=>bal.forEach((z,i)=>{document.getElementById('dsB'+i).value=z.bottles;document.getElementById('dsX'+i).value=z.boxes;});
     document.getElementById('dsSave').onclick=async()=>{
       if(dep2.saving) return;
@@ -1670,7 +1673,7 @@ function dep2AskSettlement() {
       if(field.value===''||!Number.isFinite(amount)||amount<0||Math.abs(Math.round(amount*100)-amount*100)>0.00001) return alert('변상금액을 정확히 입력해 주세요.');
       if(!memo) return alert('사유를 입력해 주세요.');
       const u=db.users.find(z=>z.id===uid)||{};
-      if(!confirm(`${u.name||uid}\n${items.map(z=>menuName(z.menuId)+' 병 '+z.bottles+' / 박스 '+z.boxes).join('\n')}\n변상금액 ${won(amount)}\n이 수량은 회수가 아닌 변상으로 잔량에서 빠집니다. 확정할까요?`)) return;
+      if(!confirm(`${u.name||uid}\n${items.map(z=>menuName(z.menuId)+' 병 '+z.bottles+' / 박스 '+z.boxes).join('\n')}\n변상금액 ${won(amount)} (공급가액 ${won(settleTax({amount}).supply)} · 부가세 ${won(settleTax({amount}).vat)})\n이 수량은 회수가 아닌 변상으로 잔량에서 빠집니다. 확정할까요?`)) return;
       dep2.saving=true; const btn=document.getElementById('dsSave'); btn.disabled=true;
       try {
         const s=await dep2Rpc('mm_deposit_settle',{p_user:uid,p_items:items,p_amount:amount,p_memo:memo,p_request:request});
@@ -1716,6 +1719,163 @@ function dep2Bind() {
   if(!dep2.loaded&&!dep2.busy) dep2Load();
 }
 
+/* ===== 매입·매출 (사장 전용) =====
+   공병·공박스 보증금·회수 환급: 비과세, 공급가액 제외 (부가세법 시행령 제61조제2항, 부가기본통칙 13-48-5 ①)
+   미회수 변상금: 과세 매출 (통칙 13-48-5 ②), 부가세 포함 공급대가 → 공급가액 = round(금액×10/11) */
+function settleTax(s) {
+  const amount = Number(s && s.amount) || 0;
+  if (s && s.supply != null && s.vat != null) return { amount, supply: Number(s.supply) || 0, vat: Number(s.vat) || 0 };
+  const supply = Math.round(amount * 10 / 11);
+  return { amount, supply, vat: Math.round((amount - supply) * 100) / 100 };
+}
+function userEvidence(uid) {
+  const last = db.orders.filter(o => o.userId === uid && o.evidence && (o.evidence.type === "cash" || o.evidence.type === "tax"))
+    .sort((a, b) => (Number(b.at) || 0) - (Number(a.at) || 0))[0];
+  if (last) return last.evidence;
+  const biz = userBizNo(db.users.find(x => x.id === uid));
+  return biz.length === 10 ? { type: "tax", bizNo: biz, source: "signup" } : { type: "none" };
+}
+function settleEvidence(s) { return s && s.evidence && s.evidence.type ? s.evidence : userEvidence(s && s.userId); }
+function evLabel(e) { return e && e.type && e.type !== "none" ? evText(e) : "미정 (업소와 확인 필요)"; }
+function settleTaxLine(s) { const t = settleTax(s); return `과세 매출 · 공급가액 ${won(t.supply)} · 부가세 ${won(t.vat)} · 증빙 ${esc(evLabel(settleEvidence(s)))}`; }
+
+const vl = { mode: "quarter", qYear: 0, q: 1, monthFrom: "", monthTo: "", from: "", to: "", report: null, busy: false, error: "", missing: false, key: "" };
+const VL_NUM = ["orders", "supply", "vat", "outB", "outBAmt", "outX", "outXAmt", "inB", "inBAmt", "inX", "inXAmt", "setB", "setX", "setCount", "setAmt", "setSupply", "setVat", "balB", "balX", "balAmt"];
+function vlInit() {
+  const today = kstDay(Date.now());
+  if (!vl.from) {
+    vl.qYear = Number(today.slice(0, 4)); vl.q = Math.floor((Number(today.slice(5, 7)) - 1) / 3) + 1;
+    vl.monthFrom = vl.monthTo = today.slice(0, 7);
+    vlSetQuarter(vl.qYear, vl.q);
+  }
+}
+// 법인 부가세 분기 신고: 1~3, 4~6, 7~9, 10~12월
+function vlSetQuarter(y, q) {
+  const m1 = (q - 1) * 3 + 1, m3 = m1 + 2, last = new Date(Date.UTC(y, m3, 0)).getUTCDate();
+  vl.qYear = y; vl.q = q; vl.from = y + "-" + String(m1).padStart(2, "0") + "-01"; vl.to = y + "-" + String(m3).padStart(2, "0") + "-" + String(last).padStart(2, "0");
+}
+function vlCompute(r, from, to) {
+  const U = new Map();
+  const get = (id, name) => {
+    if (!U.has(id)) {
+      const u = db.users.find(x => x.id === id) || {};
+      const a = { userId: id, name: name || u.name || id, bizNo: userBizNo(u), ev: { cash: 0, tax: 0, none: 0 }, setEv: null };
+      VL_NUM.forEach(k => a[k] = 0); U.set(id, a);
+    }
+    return U.get(id);
+  };
+  db.orders.filter(o => o.status === "완료").forEach(o => {
+    const d = kstDay(o.doneAt || o.at); if (d < from || d > to) return;
+    const a = get(o.userId, o.name); a.orders++; a.supply += Number(o.supply) || 0; a.vat += Number(o.vat) || 0;
+    const t = (o.evidence && o.evidence.type) || "none"; a.ev[a.ev[t] != null ? t : "none"]++;
+  });
+  if (r) {
+    (r.opening || []).forEach(z => { const a = get(z.user_id, z.user_name); a.balB += Number(z.bottles) || 0; a.balX += Number(z.boxes) || 0; a.balAmt += Number(z.amount) || 0; });
+    (r.entries || []).forEach(z => {
+      const a = get(z.user_id, z.user_name), b = Number(z.bottles) || 0, x = Number(z.boxes) || 0;
+      const bd = Number(z.bottle_dep) || 0, xd = Number(z.box_dep) || 0, amt = Number(z.amount) || 0;
+      if (z.kind === "out") { a.outB += b; a.outBAmt += b * bd; a.outX += x; a.outXAmt += x * xd; a.balB += b; a.balX += x; a.balAmt += amt; }
+      else if (z.kind === "in") { a.inB += b; a.inBAmt += b * bd; a.inX += x; a.inXAmt += x * xd; a.balB -= b; a.balX -= x; a.balAmt -= amt; }
+      else if (z.kind === "settle") { a.setB += b; a.setX += x; a.balB -= b; a.balX -= x; a.balAmt -= amt; }
+    });
+    (r.settlements || []).forEach(s => { const a = get(s.userId, s.userName), t = settleTax(s); a.setCount++; a.setAmt += t.amount; a.setSupply += t.supply; a.setVat += t.vat; a.setEv = settleEvidence(s); });
+  }
+  const rows = Array.from(U.values()).filter(a => VL_NUM.some(k => a[k])).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  const total = { name: "합계", bizNo: "", ev: { cash: 0, tax: 0, none: 0 } };
+  VL_NUM.forEach(k => total[k] = rows.reduce((s, a) => s + a[k], 0));
+  rows.forEach(a => ["cash", "tax", "none"].forEach(k => total.ev[k] += a.ev[k]));
+  return { rows, total };
+}
+function vlEvText(a) {
+  const p = [];
+  if (a.ev.tax) p.push("세금계산서 " + a.ev.tax + "건"); if (a.ev.cash) p.push("현금영수증 " + a.ev.cash + "건"); if (a.ev.none) p.push("필요없음 " + a.ev.none + "건");
+  if (a.setEv) p.push("변상: " + evLabel(a.setEv));
+  return p.join(" · ") || "-";
+}
+const VL_HEAD = ["업소", "사업자번호", "주문 과세 공급가액", "주문 부가세", "공병 출고(병)", "공병 출고액(비과세)", "공박스 출고(박스)", "공박스 출고액(비과세)",
+  "공병 회수(병)", "공병 환급액(비과세)", "공박스 회수(박스)", "공박스 환급액(비과세)", "변상 과세 공급가액", "변상 부가세", "변상 합계", "과세매출 공급가액 합계", "부가세 합계",
+  "미회수 공병(병)", "미회수 공박스(박스)", "미회수 보증금 잔액", "증빙"];
+function vlRow(a) {
+  return [a.name, a.bizNo ? fmtBizNo(a.bizNo) : "", a.supply, a.vat, a.outB, a.outBAmt, a.outX, a.outXAmt, a.inB, a.inBAmt, a.inX, a.inXAmt,
+    a.setSupply, a.setVat, a.setAmt, a.supply + a.setSupply, a.vat + a.setVat, a.balB, a.balX, a.balAmt, vlEvText(a)];
+}
+function vlTableHtml(c) {
+  const money = new Set([2, 3, 5, 7, 9, 11, 12, 13, 14, 15, 16, 19]);
+  const cell = (v, i) => typeof v === "number" ? (money.has(i) ? won(v) : n0(v)) : esc(v);
+  return `<div style="overflow-x:auto"><table style="width:100%;min-width:1100px;border-collapse:collapse;font-size:11px"><thead><tr>${VL_HEAD.map(x => `<th style="padding:4px;border-bottom:1px solid #999;text-align:left">${x}</th>`).join("")}</tr></thead><tbody>
+    ${c.rows.concat([c.total]).map((a, ri) => `<tr style="${ri === c.rows.length ? "font-weight:700;background:#f4f4f4" : ""}">${vlRow(a).map((v, i) => `<td style="padding:4px;border-bottom:1px solid #ddd;${typeof v === "number" ? "text-align:right" : ""}">${cell(v, i)}</td>`).join("")}</tr>`).join("")}
+  </tbody></table></div>`;
+}
+function vlSummaryHtml(c) {
+  const t = c.total;
+  return `<div class="totals">
+    <div><span>과세 매출 공급가액 (주문 ${won(t.supply)} + 변상 ${won(t.setSupply)})</span><b>${won(t.supply + t.setSupply)}</b></div>
+    <div><span>부가세 (주문 ${won(t.vat)} + 변상 ${won(t.setVat)})</span><b>${won(t.vat + t.setVat)}</b></div>
+    <div><span>공병 출고 ${n0(t.outB)}병 · 공박스 ${n0(t.outX)}박스 (비과세)</span><b>${won(t.outBAmt + t.outXAmt)}</b></div>
+    <div><span>공병 회수 ${n0(t.inB)}병 · 공박스 ${n0(t.inX)}박스 환급 (비과세)</span><b>-${won(t.inBAmt + t.inXAmt)}</b></div>
+    <div><span>변상 처리 공병 ${n0(t.setB)}병 · 공박스 ${n0(t.setX)}박스 (${n0(t.setCount)}건)</span><b>${won(t.setAmt)}</b></div>
+    <div class="sum"><span>기말 미회수 보증금 (공병 ${n0(t.balB)} · 공박스 ${n0(t.balX)})</span><b>${won(t.balAmt)}</b></div></div>`;
+}
+const VL_LAW = "공병·공박스 보증금과 회수 환급은 반환조건부 용기대금으로 공급가액에서 제외되며 부가세가 없습니다(부가가치세법 시행령 제61조제2항, 부가기본통칙 13-48-5 ①). 미회수로 받은 변상금은 과세 공급이며(통칙 13-48-5 ②), 변상금액을 부가세 포함 공급대가로 보아 공급가액 = 금액×10/11, 부가세 = 금액 − 공급가액으로 계산합니다. 주문 매출은 '완료' 주문, 완료일 기준(한국시간)입니다.";
+function vlLoad() {
+  const key = vl.from + "~" + vl.to;
+  if (vl.busy || vl.key === key) return;
+  vl.busy = true; vl.error = ""; vl.key = key;
+  dep2Rpc("mm_deposit_report", { p_from: vl.from, p_to: vl.to, p_user: null })
+    .then(r => { vl.report = r; vl.missing = false; })
+    .catch(e => { vl.report = null; vl.missing = dep2Missing(e); vl.error = vl.missing ? "" : dep2Error(e); })
+    .finally(() => { vl.busy = false; if (tab === "vat") renderVatLedger(); });
+}
+function renderVatLedger() {
+  if (!session || session.role !== "boss") { document.getElementById("body").innerHTML = `<div class="empty">사장만 볼 수 있습니다.</div>`; return; }
+  vlInit(); vlLoad();
+  const c = vlCompute(vl.report, vl.from, vl.to);
+  const ready = !!vl.report;
+  document.getElementById("body").innerHTML = `<article class="item"><h3>매입·매출 (공병·공박스 포함)</h3>
+    <p class="note" style="margin-top:0">${VL_LAW}</p>
+    <p class="note">법인은 부가세를 분기별로 신고합니다. 분기를 고르면 바로 조회됩니다.</p>
+    <div class="row" style="gap:6px;flex-wrap:wrap"><input type="number" id="vlQYear" min="2020" max="2100" value="${vl.qYear}" style="width:90px;margin:0">${[1, 2, 3, 4].map(q => `<button class="btn small ${vl.mode === "quarter" && vl.q === q ? "primary" : "line"}" data-vlq="${q}">${q}기 ${(q - 1) * 3 + 1}~${q * 3}월</button>`).join("")}</div>
+    <label>기간 입력</label><select id="vlMode"><option value="quarter" ${vl.mode === "quarter" ? "selected" : ""}>분기</option><option value="month" ${vl.mode === "month" ? "selected" : ""}>월별 범위</option><option value="date" ${vl.mode === "date" ? "selected" : ""}>날짜 직접 입력</option></select>
+    <div class="row" style="gap:6px">${vl.mode === "quarter" ? `<span>${vl.qYear}년 ${vl.q}분기 (${esc(vl.from)} ~ ${esc(vl.to)})</span>` : vl.mode === "month" ? `<input type="month" id="vlFrom" value="${vl.monthFrom}"><span>~</span><input type="month" id="vlTo" value="${vl.monthTo}">` : `<input type="date" id="vlFrom" value="${vl.from}"><span>~</span><input type="date" id="vlTo" value="${vl.to}">`}</div>
+    <div class="actions" style="flex-wrap:wrap"><button class="btn primary small" id="vlQuery">${vl.busy ? "조회 중…" : "기간 조회"}</button><button class="btn small" id="vlCsv">CSV(엑셀) 내려받기</button><button class="btn small" id="vlPrint">A4 출력</button></div>
+    ${vl.missing ? `<p style="color:#b45309">공병 기간조회 서버 기능이 없어 주문 매출만 표시합니다.</p>` : ""}${vl.error ? `<p style="color:#b91c1c">${esc(vl.error)}</p>` : ""}
+    <p><b>${esc(vl.from)} ~ ${esc(vl.to)} (한국시간)</b>${!ready && !vl.missing ? " · 공병 내역 불러오는 중" : ""}</p>
+    ${vlSummaryHtml(c)}</article>
+    <article class="item"><h3>업소별</h3>${c.rows.length ? vlTableHtml(c) : "<p>해당 기간 내역 없음</p>"}</article>`;
+  const $ = id => document.getElementById(id);
+  $("vlMode").onchange = e => { vl.mode = e.target.value; if (vl.mode === "quarter") { vlSetQuarter(vl.qYear, vl.q); vl.key = ""; vl.report = null; } renderVatLedger(); };
+  document.querySelectorAll("[data-vlq]").forEach(b => b.onclick = () => {
+    const y = parseInt($("vlQYear").value, 10);
+    if (!(y >= 2020 && y <= 2100)) return alert("연도를 확인해 주세요.");
+    vl.mode = "quarter"; vlSetQuarter(y, Number(b.dataset.vlq)); vl.key = ""; vl.report = null; renderVatLedger();
+  });
+  $("vlQuery").onclick = () => {
+    if (vl.mode === "quarter") {
+      const y = parseInt($("vlQYear").value, 10);
+      if (!(y >= 2020 && y <= 2100)) return alert("연도를 확인해 주세요.");
+      vlSetQuarter(y, vl.q);
+    } else if (vl.mode === "month") {
+      const a = $("vlFrom").value, b = $("vlTo").value;
+      if (!/^\d{4}-\d{2}$/.test(a) || !/^\d{4}-\d{2}$/.test(b)) return alert("시작 월과 끝 월을 입력해 주세요.");
+      const [y, m] = b.split("-").map(Number);
+      vl.monthFrom = a; vl.monthTo = b; vl.from = a + "-01"; vl.to = b + "-" + String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, "0");
+    } else { vl.from = $("vlFrom").value; vl.to = $("vlTo").value; }
+    if (!vl.from || !vl.to || vl.from > vl.to) return alert("시작일과 종료일을 확인해 주세요.");
+    vl.key = ""; vl.report = null; renderVatLedger();
+  };
+  $("vlCsv").onclick = () => vlDownload(c);
+  $("vlPrint").onclick = () => doPrint(`<h2 style="margin:0">미래몰 매입·매출 (공병·공박스 포함)</h2><p>${esc(vl.from)} ~ ${esc(vl.to)} (한국시간)</p>${vlSummaryHtml(c)}${vlTableHtml(c)}<p style="font-size:10px">${VL_LAW}</p>`, "A4 landscape");
+}
+function vlCsvText(c) {
+  const safe = v => { let s = String(v == null ? "" : v); if (typeof v === "string" && /^[\s]*[=+\-@\t\r]/.test(s)) s = "'" + s; return '"' + s.replace(/"/g, '""') + '"'; };
+  const rows = [["기간(KST)", vl.from + " ~ " + vl.to], VL_HEAD, ...c.rows.map(vlRow), vlRow(c.total), [], ["참고", VL_LAW]];
+  return "\uFEFF" + rows.map(r => r.map(safe).join(",")).join("\r\n") + "\r\n";
+}
+function vlDownload(c) {
+  const blob = new Blob([vlCsvText(c)], { type: "text/csv;charset=utf-8;" }), url = URL.createObjectURL(blob), a = document.createElement("a");
+  a.href = url; a.download = "미래몰_매입매출_" + vl.from + "_" + vl.to + ".csv"; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function depositReturn80Html(data, left) {
   const ln = (a, b) => `<div class="ln"><span>${a}</span><span>${b}</span></div>`;
   const hr = "<div>--------------------------------</div>";
@@ -1731,7 +1891,7 @@ function depositReturn80Html(data, left) {
   return `<div class="rc"><div style="text-align:center"><b style="font-size:20px">공병·공박스 회수</b></div>${hr}
     ${ln("업소", esc(data.userName || u.name || ""))}${ln("일시", depKstTime(data.at))}${ln("기입", esc(data.by || session.name))}${hr}
     ${lines}${hr}
-    <div style="font-size:17px;font-weight:700">${ln("돌려줄 금액", n0(data.amount) + "원")}</div>${hr}
+    <div style="font-size:17px;font-weight:700">${ln("돌려줄 금액", n0(data.amount) + "원")}</div><div style="font-size:11px">비과세 보증금 반환 (부가세 없음)</div>${hr}
     <div><b>남은 미회수</b></div>${leftHtml}${hr}
     <div style="text-align:center;margin-top:12px">업소 확인·서명 __________________</div>
     <div style="margin-top:24px;border-top:2px dashed #555;text-align:center;font-size:11px;color:#555">✂ - - - 절취선 - - -</div></div>`;
